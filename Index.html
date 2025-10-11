@@ -297,6 +297,65 @@ const CONFIG = {
 //
 // PURPOSE: Central game state object - holds all active entities and metadata
 //
+
+// ============================================================================
+// GLOBAL CLOCK SYSTEM - High Precision Timing & Deterministic Randomness
+// ============================================================================
+// Uses performance.now() for microsecond precision
+// Provides time-based seeds that automatically change each frame
+// Simplifies randomization and makes debugging easier
+const GameClock = {
+  startTime: performance.now(),
+  currentTime: performance.now(),
+  deltaTime: 0,
+  frameCount: 0,
+  
+  // Update clock (called once per frame)
+  tick() {
+    const now = performance.now();
+    this.deltaTime = Math.min((now - this.currentTime) / 1000, 0.08); // Cap at 80ms
+    this.currentTime = now;
+    this.frameCount++;
+  },
+  
+  // Get elapsed time since game start (seconds)
+  elapsed() {
+    return (this.currentTime - this.startTime) / 1000;
+  },
+  
+  // Get current timestamp (milliseconds, high precision)
+  now() {
+    return this.currentTime;
+  },
+  
+  // Get unique seed based on current time (changes every call)
+  getSeed() {
+    return Math.floor(this.currentTime * 1000) + this.frameCount;
+  },
+  
+  // Time-based random number [0, 1) - deterministic per seed
+  random(seed = null) {
+    const s = seed !== null ? seed : this.getSeed();
+    const x = Math.sin(s * 12.9898 + 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  },
+  
+  // Random integer [min, max] using clock-based seed
+  randomInt(min, max, seed = null) {
+    return Math.floor(this.random(seed) * (max - min + 1)) + min;
+  },
+  
+  // Random float [min, max] using clock-based seed
+  randomFloat(min, max, seed = null) {
+    return this.random(seed) * (max - min) + min;
+  },
+  
+  // Get unique ID based on time + counter
+  uniqueId(prefix = '') {
+    return prefix + this.getSeed() + '_' + Math.floor(Math.random() * 9999);
+  }
+};
+
 const GameState = {
   // === ENTITY ARRAYS ===
   fighters: [],              // All active fighters (players, enemies, bosses, Zephyr)
@@ -547,15 +606,18 @@ class Fighter {
 
   spawnPosition() {
     if (this.isEnemy) {
-      // Enemies spawn from TOP of screen
-      this.x = Math.random() * GameState.width;
+      // Enemies spawn from TOP of screen - use clock for positioning
+      const seed = GameClock.getSeed();
+      this.x = GameClock.randomFloat(100, GameState.width - 100, seed);
       this.y = -50;
     } else if (isZephyr(this.username)) {
       this.x = this.anchorX;
       this.y = this.anchorY;
     } else {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 180 + Math.random() * 160;
+      // Players spawn in circle around center - use clock for angle
+      const seed = GameClock.getSeed();
+      const angle = GameClock.randomFloat(0, Math.PI * 2, seed);
+      const distance = GameClock.randomFloat(180, 340, seed + 1);
       this.x = GameState.width / 2 + Math.cos(angle) * distance;
       this.y = GameState.height / 2 + Math.sin(angle) * distance;
     }
@@ -1384,7 +1446,9 @@ function spawnPlayer(username) {
 }
 
 function spawnAIEnemy() {
-  const fighter = new Fighter('AI_' + Date.now(), true, false);
+  // Use GameClock for unique ID
+  const uniqueId = 'AI_' + GameClock.uniqueId();
+  const fighter = new Fighter(uniqueId, true, false);
   GameState.fighters.push(fighter);
   return fighter;
 }
@@ -1458,27 +1522,28 @@ function spawnBoss() {
 }
 
 function updateKOTHZone() {
-  const now = performance.now();
+  const now = GameClock.now();
   if (!GameState.kothZone || now - GameState.lastKOTHMove > CONFIG.KOTH_MOVE_INTERVAL) {
     if (GameState.kothZone && GameState.kothZone.element) {
       GameState.kothZone.element.remove();
     }
     
-    // Spawn away from center, in corners or edges
+    // Spawn away from center, in corners or edges - use clock-based seed
     let x, y;
-    const side = Math.floor(Math.random() * 4);
+    const seed = GameClock.getSeed();
+    const side = GameClock.randomInt(0, 3, seed);
     if (side === 0) { // Top half
-      x = 150 + Math.random() * (GameState.width - 300);
-      y = 100 + Math.random() * 200;
+      x = GameClock.randomFloat(150, GameState.width - 150, seed + 1);
+      y = GameClock.randomFloat(100, 300, seed + 2);
     } else if (side === 1) { // Bottom half
-      x = 150 + Math.random() * (GameState.width - 300);
-      y = GameState.height - 300 + Math.random() * 200;
+      x = GameClock.randomFloat(150, GameState.width - 150, seed + 1);
+      y = GameClock.randomFloat(GameState.height - 300, GameState.height - 100, seed + 2);
     } else if (side === 2) { // Left side
-      x = 100 + Math.random() * 200;
-      y = 150 + Math.random() * (GameState.height - 300);
+      x = GameClock.randomFloat(100, 300, seed + 1);
+      y = GameClock.randomFloat(150, GameState.height - 150, seed + 2);
     } else { // Right side
-      x = GameState.width - 300 + Math.random() * 200;
-      y = 150 + Math.random() * (GameState.height - 300);
+      x = GameClock.randomFloat(GameState.width - 300, GameState.width - 100, seed + 1);
+      y = GameClock.randomFloat(150, GameState.height - 150, seed + 2);
     }
     
     // Ensure it's not in center avoidance zone
@@ -1598,9 +1663,10 @@ function updateStats() {
 //
 
 function gameLoop() {
-  const now = performance.now();
-  const dt = Math.min((now - GameState.lastUpdate) / 1000, 0.08);
-  GameState.lastUpdate = now;
+  // === UPDATE GLOBAL CLOCK ===
+  GameClock.tick();
+  const dt = GameClock.deltaTime;
+  const now = GameClock.now();
 
   // Update all entities
   for (const fighter of GameState.fighters.slice()) fighter.update(dt);
