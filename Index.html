@@ -213,6 +213,11 @@ const CONFIG = {
   KOTH_ZONE_RADIUS: 140,
   KOTH_POINTS_PER_SEC: 2,
   XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
+  
+  // Center screen avoidance (for stream overlay)
+  CENTER_AVOID_X: 960,  // 1920/2
+  CENTER_AVOID_Y: 540,  // 1080/2
+  CENTER_AVOID_RADIUS: 200, // Characters stay outside this
 };
 
 // =====================
@@ -550,6 +555,17 @@ ${line4}`;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
+    // Avoid center of screen (for overlay)
+    const dxCenter = this.x - CONFIG.CENTER_AVOID_X;
+    const dyCenter = this.y - CONFIG.CENTER_AVOID_Y;
+    const distToCenter = Math.sqrt(dxCenter*dxCenter + dyCenter*dyCenter);
+    if (distToCenter < CONFIG.CENTER_AVOID_RADIUS) {
+      // Push away from center
+      const pushForce = (CONFIG.CENTER_AVOID_RADIUS - distToCenter) / CONFIG.CENTER_AVOID_RADIUS;
+      this.vx += (dxCenter / distToCenter) * pushForce * this.speed * 0.8;
+      this.vy += (dyCenter / distToCenter) * pushForce * this.speed * 0.8;
+    }
+
     this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
     this.y = Math.max(30, Math.min(GameState.height - 30, this.y));
 
@@ -559,29 +575,41 @@ ${line4}`;
   }
 
   updatePlayerAI(dt) {
-    // Players: collect ammo, fight enemies, and PvP.
+    // Players: seek KOTH zone, collect ammo, fight enemies
     let target = null;
     let minDist = Infinity;
 
+    // Priority 1: Collect ammo if low
     if (this.ammoCount < 2) {
       for (const ammo of GameState.ammo) {
         if (ammo.collected) continue;
         const dist = distance(this.x, this.y, ammo.x, ammo.y);
-        if (dist < 220 && dist < minDist) {
+        if (dist < 280 && dist < minDist) {
           minDist = dist;
           target = { x: ammo.x, y: ammo.y, isAmmo: true };
         }
       }
     }
 
-    if (!target && this.ammoCount > 0) {
-      // Prefer nearest enemy; if none nearby, engage nearest other player (PvP)
+    // Priority 2: Seek KOTH zone if we have ammo
+    if (!target && this.ammoCount > 0 && GameState.kothZone) {
+      const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
+      
+      // If not in KOTH zone, move toward it
+      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS) {
+        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
+        minDist = distToKOTH;
+      }
+      
+      // Look for enemies to fight (prefer those near KOTH)
       for (const f of GameState.fighters) {
         if (!f.alive || f === this) continue;
         const dist = distance(this.x, this.y, f.x, f.y);
-        const isPreferred = f.isEnemy ? 1 : (!isZephyr(f.username) ? 2 : 3); // enemies first, then players, avoid Zephyr last
-        const score = dist * isPreferred;
-        if (score < minDist) { minDist = score; target = f; }
+        const distFighterToKOTH = GameState.kothZone ? distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y) : 999;
+        const isPreferred = f.isEnemy ? 1 : (!isZephyr(f.username) ? 2 : 3);
+        const kothBonus = distFighterToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5 ? 0.5 : 1; // Prefer targets near KOTH
+        const score = dist * isPreferred * kothBonus;
+        if (score < minDist * 0.8) { minDist = score; target = f; }
       }
     }
 
@@ -633,28 +661,46 @@ ${line4}`;
   }
 
   updateEnemyAI(dt) {
-    // Allied enemies: descend and target any non-enemy (players + Zephyr)
-    this.y += 15 * dt;
-
+    // Enemies seek KOTH zone and hold ground there!
+    
+    // Check if we're below map, destroy if so
     if (this.y > GameState.height + 50) { this.destroy(); return; }
 
     let target = null;
-    let minDist = 300; // Increased detection range
+    let minDist = 350;
+    
+    // SEEK KOTH ZONE - enemies want to control it!
+    if (GameState.kothZone) {
+      const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
+      
+      // If far from KOTH, move toward it
+      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS * 1.2) {
+        const dx = GameState.kothZone.x - this.x;
+        const dy = GameState.kothZone.y - this.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx += (dx / d) * this.speed * 0.3;
+        this.vy += (dy / d) * this.speed * 0.3;
+      }
+    }
+    
+    // Find targets to attack (prefer those in/near KOTH)
     for (const f of GameState.fighters) {
       if (!f.alive || f.isEnemy) continue;
       const dist = distance(this.x, this.y, f.x, f.y);
-      if (dist < minDist) { minDist = dist; target = f; }
+      const distFighterToKOTH = GameState.kothZone ? distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y) : 999;
+      const kothBonus = distFighterToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5 ? 0.6 : 1;
+      const score = dist * kothBonus;
+      if (score < minDist) { minDist = score; target = f; }
     }
 
     if (target) {
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      // Move toward target more aggressively
-      this.vx = (dx / dist) * this.speed * 0.6;
-      this.vy = (dy / dist) * this.speed * 0.4;
+      this.vx += (dx / dist) * this.speed * 0.5;
+      this.vy += (dy / dist) * this.speed * 0.5;
       const now = performance.now();
-      if (now - this.lastAttack > this.attackCooldown && dist < 220) {
+      if (now - this.lastAttack > this.attackCooldown && dist < 240) {
         this.attackTarget(target);
         this.lastAttack = now;
       }
@@ -666,10 +712,27 @@ ${line4}`;
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      if (target.isAmmo || dist > 200) {
+      
+      if (target.isAmmo) {
+        // Collect ammo
+        this.vx = (dx / dist) * this.speed * 0.85;
+        this.vy = (dy / dist) * this.speed * 0.85;
+      } else if (target.isKOTH) {
+        // Move toward KOTH zone
+        if (dist > CONFIG.KOTH_ZONE_RADIUS) {
+          this.vx = (dx / dist) * this.speed * 0.7;
+          this.vy = (dy / dist) * this.speed * 0.7;
+        } else {
+          // In KOTH, slow down and hold ground
+          this.vx *= 0.85;
+          this.vy *= 0.85;
+        }
+      } else if (dist > 200) {
+        // Chase enemy
         this.vx = (dx / dist) * this.speed * 0.85;
         this.vy = (dy / dist) * this.speed * 0.85;
       } else {
+        // In range, attack!
         this.vx *= 0.85; this.vy *= 0.85;
         const now = performance.now();
         if (now - this.lastAttack > this.attackCooldown && this.ammoCount > 0) {
@@ -751,11 +814,32 @@ function spawnAIEnemy() {
   return fighter;
 }
 
-function spawnAmmo(username, message) {
+function spawnAmmo(username, message, edgeSpawn = false) {
   const words = message.trim().split(/\s+/).filter(w => w.length > 0);
   for (const word of words) {
     if (word.length > 15) continue;
-    const ammo = new Ammo(word);
+    let x, y;
+    if (edgeSpawn) {
+      // Spawn around edges of map, avoiding center
+      const side = Math.floor(Math.random() * 4);
+      if (side === 0) { // top
+        x = Math.random() * GameState.width;
+        y = 50 + Math.random() * 100;
+      } else if (side === 1) { // bottom
+        x = Math.random() * GameState.width;
+        y = GameState.height - 150 + Math.random() * 100;
+      } else if (side === 2) { // left
+        x = 50 + Math.random() * 100;
+        y = Math.random() * GameState.height;
+      } else { // right
+        x = GameState.width - 150 + Math.random() * 100;
+        y = Math.random() * GameState.height;
+      }
+    } else {
+      x = undefined; // Random spawn
+      y = undefined;
+    }
+    const ammo = new Ammo(word, x, y);
     GameState.ammo.push(ammo);
   }
 }
@@ -842,29 +926,34 @@ function handleStreamlabsEvent(data) {
       const text = msg.message || "";
       const eventSubType = msg.type || '';
       
-      // Show 15-second alert for significant events
+      // ALL ALERTS SUMMON A BOSS!
       if (eventSubType === 'follow') {
         showEventAlert('🎉 NEW FOLLOWER! 🎉', `${username} just followed the stream!`, '#0ff');
+        spawnBoss();
         spawnPlayer(username);
-        spawnAmmo(username, 'WELCOME FOLLOW THANKS AWESOME');
+        spawnAmmo(username, 'WELCOME FOLLOW THANKS AWESOME', true); // Edge spawn
       } else if (eventSubType === 'subscription' || eventSubType === 'resub') {
         showEventAlert('⭐ SUBSCRIBER! ⭐', `${username} subscribed to the channel!`, '#f0f');
+        spawnBoss();
         spawnPlayer(username);
-        spawnAmmo(username, 'SUB HYPE LEGENDARY EPIC AMAZING THANKS');
-        // Extra enemies for more action
+        spawnAmmo(username, 'SUB HYPE LEGENDARY EPIC AMAZING THANKS', true);
+        // Extra enemies for more chaos
+        spawnAIEnemy();
         spawnAIEnemy();
         spawnAIEnemy();
       } else if (eventSubType === 'bits' || eventSubType === 'cheer') {
         const amount = msg.amount || 0;
         showEventAlert('💎 BITS CHEERED! 💎', `${username} cheered ${amount} bits!`, '#ff0');
+        spawnBoss();
         spawnPlayer(username);
-        spawnAmmo(username, 'BITS ENERGY BOOST POWER HYPE');
+        spawnAmmo(username, 'BITS ENERGY BOOST POWER HYPE', true);
+        spawnAIEnemy();
         spawnAIEnemy();
       } else {
         // Regular chat message
         spawnPlayer(username);
         if (text && text.length > 0) {
-          spawnAmmo(username, text);
+          spawnAmmo(username, text, false); // Normal random spawn
           addChatLine(username, text);
         }
       }
@@ -876,8 +965,9 @@ function handleStreamlabsEvent(data) {
     const username = eventData.name || eventData.from || 'Anonymous';
     showEventAlert('💰 DONATION! 💰', `${username} donated $${amount}! BOSS INCOMING!`, '#0f0');
     spawnBoss();
+    spawnBoss(); // Double boss for donations!
     spawnPlayer(username);
-    spawnAmmo(username, 'DONATION LEGENDARY EPIC AMAZING INCREDIBLE');
+    spawnAmmo(username, 'DONATION LEGENDARY EPIC AMAZING INCREDIBLE', true);
   }
 }
 
