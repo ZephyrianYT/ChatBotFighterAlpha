@@ -435,7 +435,7 @@ function handleStreamlabsEvent(data) {
         // Regular chat message
         spawnPlayer(username);
         if (text && text.length > 0) {
-          spawnAmmo(username, text, false);
+          spawnAmmo(username, text, true); // Spawn at edges!
           addChatLine(username, text);
         }
       }
@@ -740,65 +740,18 @@ class Fighter {
   }
 
   updatePlayerAI(dt) {
-    // Dynamic behavior based on personality and situation
-    const now = performance.now();
-    const hpPct = this.hp / this.maxHp;
-    
-    // Change behavior dynamically based on situation
-    if (now - this.lastBehaviorChange > 3000) {
-      if (hpPct < 0.3 && this.personality !== 'aggressive') {
-        this.currentBehavior = 'fleeing'; // Low HP = run!
-      } else if (this.ammoCount < 1) {
-        this.currentBehavior = 'collecting'; // Need resources!
-      } else if (hpPct > 0.7 && this.ammoCount > 3) {
-        this.currentBehavior = this.personality; // Use personality
-      }
-      this.lastBehaviorChange = now;
-    }
-    
+    // *** EVERYONE FIGHTS EVERYONE - KOTH IS KING ***
     let target = null;
     let minDist = Infinity;
-    const searchRange = this.currentBehavior === 'aggressive' ? 600 : 450;
 
-    // BEHAVIOR: FLEEING - run from enemies, seek Zephyr
-    if (this.currentBehavior === 'fleeing' && hpPct < 0.4) {
-      // Run toward Zephyr if exists
-      if (GameState.zephyr && GameState.zephyr.alive) {
-        const dist = distance(this.x, this.y, GameState.zephyr.x, GameState.zephyr.y);
-        if (dist > 80) {
-          target = { x: GameState.zephyr.x, y: GameState.zephyr.y, isFlee: true };
-          this.moveAndAttack(target);
-          return;
-        }
-      }
-      // Otherwise run from nearest enemy
-      let nearestEnemy = null;
-      let minEnemyDist = 300;
-      for (const f of GameState.fighters) {
-        if (!f.alive || !f.isEnemy) continue;
-        const dist = distance(this.x, this.y, f.x, f.y);
-        if (dist < minEnemyDist) { minEnemyDist = dist; nearestEnemy = f; }
-      }
-      if (nearestEnemy) {
-        // Run opposite direction
-        const dx = this.x - nearestEnemy.x;
-        const dy = this.y - nearestEnemy.y;
-        const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        this.vx = (dx / d) * this.speed * 1.2;
-        this.vy = (dy / d) * this.speed * 1.2;
-        return;
-      }
-    }
-
-    // PRIORITY 1.5: COLLECT AMMO - always seek pickups!
-    if (GameState.ammo.length > 0 && (this.ammoCount < 3 || this.currentBehavior === 'collecting' || this.currentBehavior === 'greedy')) {
+    // === PRIORITY 1: DESPERATE FOR AMMO (< 3 shots) ===
+    if (this.ammoCount < 3 && GameState.ammo.length > 0) {
       for (const ammo of GameState.ammo) {
         if (ammo.collected) continue;
         const dist = distance(this.x, this.y, ammo.x, ammo.y);
-        // Ammo is ALWAYS a priority goal!
-        if (dist < 500 && dist < minDist) {
+        if (dist < minDist) {
           minDist = dist;
-          target = { x: ammo.x, y: ammo.y, isAmmo: true };
+          target = { x: ammo.x, y: ammo.y, isAmmo: true, isUrgent: true };
         }
       }
       if (target) {
@@ -807,35 +760,41 @@ class Fighter {
       }
     }
 
-    // BEHAVIOR: DETERMINED/GREEDY - rush KOTH for points
-    if ((this.currentBehavior === 'determined' || this.currentBehavior === 'greedy') && GameState.kothZone && this.ammoCount > 0) {
+    // === PRIORITY 2: KOTH ZONE (PRIMARY GOAL!) ===
+    if (GameState.kothZone && this.ammoCount > 0) {
       const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
-      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS) {
+      
+      // ALWAYS seeking KOTH
+      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 50) {
         target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
-        this.moveAndAttack(target);
-        return;
+      } else {
+        // IN/NEAR KOTH - fight anyone nearby!
+        for (const f of GameState.fighters) {
+          if (!f.alive || f === this || isZephyr(f.username)) continue;
+          const dist = distance(this.x, this.y, f.x, f.y);
+          if (dist < 450 && dist < minDist) {
+            minDist = dist;
+            target = f; // ATTACK!
+          }
+        }
+        if (!target) {
+          target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true, isHolding: true };
+        }
       }
     }
 
-    // BEHAVIOR: AGGRESSIVE/TACTICAL/SURVIVOR - find and attack
-    if (this.ammoCount > 0) {
+    // === PRIORITY 3: FIGHT EVERYONE (HEROES + ENEMIES) ===
+    if (!target && this.ammoCount > 0) {
       for (const f of GameState.fighters) {
-        if (!f.alive || f === this) continue;
-        if (isZephyr(f.username)) continue;
+        if (!f.alive || f === this || isZephyr(f.username)) continue;
         
         const dist = distance(this.x, this.y, f.x, f.y);
-        if (dist > searchRange) continue;
+        if (dist > 700) continue;
         
-        // Calculate target priority
-        const isEnemy = f.isEnemy;
-        const targetHP = f.hp / f.maxHp;
-        const targetAmmo = f.ammoCount || 0;
-        
+        // ATTACK EVERYONE! Heroes AND enemies!
         let priority = 1.0;
-        if (isEnemy) priority = 0.8; // Enemies slightly preferred
-        if (this.currentBehavior === 'aggressive') priority *= 0.7; // More aggressive
-        if (this.currentBehavior === 'tactical' && targetHP < 0.5) priority *= 0.6; // Target weak
-        if (this.currentBehavior === 'survivor' && targetAmmo < 2) priority *= 0.7; // Pick easy fights
+        if (f.isEnemy) priority *= 0.9;
+        if (f.hp < f.maxHp * 0.5) priority *= 0.8;
         
         const score = dist * priority;
         if (score < minDist) {
@@ -845,34 +804,31 @@ class Fighter {
       }
     }
 
-    // ALWAYS HAVE A GOAL - GET POINTS!
-    if (!target) {
-      // PRIMARY GOAL: GET TO KOTH FOR POINTS!
-      if (GameState.kothZone && this.ammoCount > 0) {
-        const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
-        if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 50) {
-          target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
-        } else {
-          // Already in KOTH? Look for kills for more points!
-          for (const f of GameState.fighters) {
-            if (!f.alive || f === this || isZephyr(f.username)) continue;
-            const dist = distance(this.x, this.y, f.x, f.y);
-            if (dist < 400) {
-              target = f;
-              break;
-            }
-          }
+    // === PRIORITY 4: MORE AMMO ===
+    if (!target && GameState.ammo.length > 0 && this.ammoCount < 15) {
+      for (const ammo of GameState.ammo) {
+        if (ammo.collected) continue;
+        const dist = distance(this.x, this.y, ammo.x, ammo.y);
+        if (dist < 600 && dist < minDist) {
+          minDist = dist;
+          target = { x: ammo.x, y: ammo.y, isAmmo: true };
         }
+      }
+    }
+
+    // === FALLBACK: ALWAYS MOVE TO KOTH ===
+    if (!target) {
+      if (GameState.kothZone) {
+        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
       } else {
-        // No ammo? Get some then get points!
         const edges = [
-          { x: 150, y: 150 },
-          { x: GameState.width - 150, y: 150 },
-          { x: 150, y: GameState.height - 150 },
-          { x: GameState.width - 150, y: GameState.height - 150 },
+          { x: 200, y: 200 },
+          { x: GameState.width - 200, y: 200 },
+          { x: 200, y: GameState.height - 200 },
+          { x: GameState.width - 200, y: GameState.height - 200 },
         ];
-        const randomEdge = edges[Math.floor(Math.random() * edges.length)];
-        target = { x: randomEdge.x, y: randomEdge.y, isEdge: true };
+        target = edges[Math.floor(Math.random() * edges.length)];
+        target.isPatrol = true;
       }
     }
 
@@ -919,30 +875,20 @@ class Fighter {
   }
 
   updateEnemyAI(dt) {
-    // Enemies are ALWAYS aggressive - constant threat!
+    // *** ENEMIES: HUNT EVERYONE, CONTEST KOTH ***
     if (this.y > GameState.height + 50) { this.destroy(); return; }
 
     let target = null;
-    let minDist = 600; // Even larger detection range
+    let minDist = 700;
     
-    // AGGRESSIVE: Always hunting for targets
+    // === HUNT ALL NON-ENEMIES ===
     for (const f of GameState.fighters) {
-      if (!f.alive || f.isEnemy) continue;
-      const dist = distance(this.x, this.y, f.x, f.y);
+      if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
       
-      // Prioritize different targets based on enemy personality
+      const dist = distance(this.x, this.y, f.x, f.y);
       let priority = 1.0;
-      if (this.personality === 'aggressive') {
-        priority = 0.8;
-      } else if (this.personality === 'hunter') {
-        const hpPct = f.hp / f.maxHp;
-        if (hpPct < 0.5) priority = 0.5; // Strong preference for wounded
-      } else if (this.personality === 'determined') {
-        if (GameState.kothZone) {
-          const distToKOTH = distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y);
-          if (distToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5) priority = 0.6;
-        }
-      }
+      if (f.hp < f.maxHp * 0.5) priority *= 0.7;
+      if (f.isRaging) priority *= 0.6; // Target KOTH holders!
       
       const score = dist * priority;
       if (score < minDist) {
@@ -951,108 +897,112 @@ class Fighter {
       }
     }
 
+    // === ATTACK OR MOVE TO KOTH ===
     if (target) {
-      // Chase target aggressively - NEVER IDLE
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      this.vx += (dx / dist) * this.speed * 0.8; // Even more aggressive
-      this.vy += (dy / dist) * this.speed * 0.8;
+      
+      this.vx += (dx / dist) * this.speed * 0.9;
+      this.vy += (dy / dist) * this.speed * 0.9;
       
       const now = performance.now();
-      if (now - this.lastAttack > this.attackCooldown && dist < 300) {
+      if (now - this.lastAttack > this.attackCooldown && dist < 320) {
         this.attackTarget(target);
         this.lastAttack = now;
       }
     } else {
-      // ALWAYS MOVE - no idle enemies!
+      // NO TARGET? GO TO KOTH!
       if (GameState.kothZone) {
-        // Head to KOTH zone
         const dx = GameState.kothZone.x - this.x;
         const dy = GameState.kothZone.y - this.y;
         const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        this.vx += (dx / d) * this.speed * 0.6;
-        this.vy += (dy / d) * this.speed * 0.6;
+        this.vx += (dx / d) * this.speed * 0.7;
+        this.vy += (dy / d) * this.speed * 0.7;
       } else {
-        // Patrol toward nearest edge (avoid center)
-        const toLeft = this.x;
-        const toRight = GameState.width - this.x;
-        const toTop = this.y;
-        const toBottom = GameState.height - this.y;
-        const minEdge = Math.min(toLeft, toRight, toTop, toBottom);
-        
-        if (minEdge === toLeft) this.vx -= this.speed * 0.4;
-        else if (minEdge === toRight) this.vx += this.speed * 0.4;
-        else if (minEdge === toTop) this.vy -= this.speed * 0.4;
-        else this.vy += this.speed * 0.4;
+        // Random movement
+        if (Math.random() < 0.03) {
+          this.vx += (Math.random() - 0.5) * this.speed * 0.6;
+          this.vy += (Math.random() - 0.5) * this.speed * 0.6;
+        }
       }
     }
   }
 
   moveAndAttack(target) {
-    if (target) {
-      const dx = target.x - this.x;
-      const dy = target.y - this.y;
-      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      
-      if (target.isFlee || target.isEdge) {
-        // Fleeing to safety / Moving to edge - URGENT
-        this.vx = (dx / dist) * this.speed * 1.2;
-        this.vy = (dy / dist) * this.speed * 1.2;
-      } else if (target.isAmmo) {
-        // Collect ammo urgently - GOAL
-        this.vx = (dx / dist) * this.speed * 1.0;
-        this.vy = (dy / dist) * this.speed * 1.0;
-      } else if (target.isKOTH) {
-        // Move toward KOTH zone - PRIMARY GOAL
-        if (dist > CONFIG.KOTH_ZONE_RADIUS) {
-          this.vx = (dx / dist) * this.speed * 0.9;
-          this.vy = (dy / dist) * this.speed * 0.9;
-        } else {
-          // In KOTH, keep moving in circle - NO IDLE
-          this.vx = (dx / dist) * this.speed * 0.3;
-          this.vy = (dy / dist) * this.speed * 0.3;
-          // Circular motion in KOTH
-          this.vx += -dy * 0.08;
-          this.vy += dx * 0.08;
-        }
-      } else if (dist > 250) {
-        // Chase target aggressively
-        const speedMult = this.currentBehavior === 'aggressive' ? 1.1 : 1.0;
-        this.vx = (dx / dist) * this.speed * speedMult;
-        this.vy = (dy / dist) * this.speed * speedMult;
-      } else if (dist > 180) {
-        // Closing in - strafe while approaching - KEEP MOVING
-        this.vx = (dx / dist) * this.speed * 0.9 + -dy * 0.2;
-        this.vy = (dy / dist) * this.speed * 0.9 + dx * 0.2;
+    // *** NEVER HALT - ALWAYS MOVING ***
+    if (!target) {
+      // NO TARGET? Random movement!
+      this.vx += (Math.random() - 0.5) * this.speed * 0.5;
+      this.vy += (Math.random() - 0.5) * this.speed * 0.5;
+      return;
+    }
+
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    
+    // URGENT (low ammo)
+    if (target.isUrgent) {
+      this.vx += (dx / dist) * this.speed * 1.4;
+      this.vy += (dy / dist) * this.speed * 1.4;
+      return;
+    }
+    
+    // AMMO
+    if (target.isAmmo) {
+      this.vx += (dx / dist) * this.speed * 1.2;
+      this.vy += (dy / dist) * this.speed * 1.2;
+      return;
+    }
+    
+    // KOTH ZONE
+    if (target.isKOTH) {
+      if (dist > CONFIG.KOTH_ZONE_RADIUS) {
+        this.vx += (dx / dist) * this.speed * 1.0;
+        this.vy += (dy / dist) * this.speed * 1.0;
       } else {
-        // In range, attack while moving! - NO STANDING STILL
-        this.vx = (dx / dist) * this.speed * 0.5;
-        this.vy = (dy / dist) * this.speed * 0.5;
-        // Add strafe component
+        // IN KOTH - circle strafe (NEVER IDLE!)
+        this.vx += (dx / dist) * this.speed * 0.3;
+        this.vy += (dy / dist) * this.speed * 0.3;
         this.vx += -dy * 0.15;
         this.vy += dx * 0.15;
+      }
+      return;
+    }
+    
+    // COMBAT
+    if (target.alive !== undefined) {
+      const now = performance.now();
+      
+      if (dist > 300) {
+        // CHASE
+        this.vx += (dx / dist) * this.speed * 1.0;
+        this.vy += (dy / dist) * this.speed * 1.0;
+      } else if (dist > 220) {
+        // APPROACH + STRAFE
+        this.vx += (dx / dist) * this.speed * 0.8;
+        this.vy += (dy / dist) * this.speed * 0.8;
+        this.vx += -dy * 0.18;
+        this.vy += dx * 0.18;
+      } else {
+        // IN RANGE - ATTACK + DODGE (NEVER STAND STILL!)
+        this.vx += (dx / dist) * this.speed * 0.5;
+        this.vy += (dy / dist) * this.speed * 0.5;
+        this.vx += -dy * 0.28;
+        this.vy += dx * 0.28;
         
-        const now = performance.now();
         if (now - this.lastAttack > this.attackCooldown && this.ammoCount > 0) {
           this.attackTarget(target);
           this.lastAttack = now;
         }
       }
-    } else {
-      // NEVER TRULY IDLE - always move somewhere
-      if (GameState.kothZone) {
-        const dx = GameState.kothZone.x - this.x;
-        const dy = GameState.kothZone.y - this.y;
-        const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        this.vx += (dx / d) * this.speed * 0.4;
-        this.vy += (dy / d) * this.speed * 0.4;
-      } else {
-        // Drift toward nearest edge
-        this.vx *= 0.95;
-        this.vy *= 0.95;
-      }
+      return;
     }
+    
+    // PATROL
+    this.vx += (dx / dist) * this.speed * 0.7;
+    this.vy += (dy / dist) * this.speed * 0.7;
   }
 
   attackTarget(target) {
@@ -1439,30 +1389,39 @@ function spawnAIEnemy() {
   return fighter;
 }
 
-function spawnAmmo(username, message, edgeSpawn = false) {
+function spawnAmmo(username, message, edgeSpawn = true) {
+  // *** AMMO ALWAYS SPAWNS AT EDGES (default) ***
   const words = message.trim().split(/\s+/).filter(w => w.length > 0);
   for (const word of words) {
     if (word.length > 15) continue;
     let x, y;
+    
     if (edgeSpawn) {
+      // SPAWN AT MAP EDGES - forces movement to collect
       const side = Math.floor(Math.random() * 4);
       if (side === 0) {
-        x = Math.random() * GameState.width;
-        y = 50 + Math.random() * 100;
+        // TOP edge
+        x = 100 + Math.random() * (GameState.width - 200);
+        y = 80 + Math.random() * 120;
       } else if (side === 1) {
-        x = Math.random() * GameState.width;
-        y = GameState.height - 150 + Math.random() * 100;
+        // BOTTOM edge
+        x = 100 + Math.random() * (GameState.width - 200);
+        y = GameState.height - 200 + Math.random() * 120;
       } else if (side === 2) {
-        x = 50 + Math.random() * 100;
-        y = Math.random() * GameState.height;
+        // LEFT edge
+        x = 80 + Math.random() * 120;
+        y = 100 + Math.random() * (GameState.height - 200);
       } else {
-        x = GameState.width - 150 + Math.random() * 100;
-        y = Math.random() * GameState.height;
+        // RIGHT edge
+        x = GameState.width - 200 + Math.random() * 120;
+        y = 100 + Math.random() * (GameState.height - 200);
       }
     } else {
-      x = undefined;
-      y = undefined;
+      // Random spawn (rare)
+      x = 150 + Math.random() * (GameState.width - 300);
+      y = 150 + Math.random() * (GameState.height - 300);
     }
+    
     const ammo = new Ammo(word, x, y);
     GameState.ammo.push(ammo);
   }
