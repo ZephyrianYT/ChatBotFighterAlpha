@@ -931,111 +931,127 @@ class Fighter {
   }
 
   updatePlayerAI(dt) {
-    // *** EVERYONE FIGHTS EVERYONE - KOTH IS KING ***
+    // ╔═══════════════════════════════════════════════════════════════════════╗
+    // ║               AI PRIORITY SYSTEM (Numbered & Enforced)                ║
+    // ╚═══════════════════════════════════════════════════════════════════════╝
     let target = null;
     let minDist = Infinity;
 
-    // === PRIORITY 0: ESCAPE CENTER IF IN DANGER ZONE! ===
+    // === PRIORITY 0: ESCAPE CENTER (FORCED - Overrides Everything!) ===
     if (this.inDangerZone) {
-      // FORCED FLEE - get out of center NOW!
       const dx = this.x - CONFIG.CENTER_AVOID_X;
       const dy = this.y - CONFIG.CENTER_AVOID_Y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      
-      // Calculate escape point (directly away from center)
-      const escapeDistance = 550; // Beyond fade zone
+      const escapeDistance = 600;
       const targetX = CONFIG.CENTER_AVOID_X + (dx / dist) * escapeDistance;
       const targetY = CONFIG.CENTER_AVOID_Y + (dy / dist) * escapeDistance;
-      
-      target = { x: targetX, y: targetY, isFlee: true, isUrgent: true, isCenterEscape: true };
+      target = { x: targetX, y: targetY, priority: 0, isCenterEscape: true };
       this.moveAndAttack(target);
-      return; // Override all other priorities!
+      return;
     }
 
-    // === PRIORITY 1: DESPERATE FOR AMMO (< 3 shots) ===
-    if (this.ammoCount < 3 && GameState.ammo.length > 0) {
-      for (const ammo of GameState.ammo) {
-        if (ammo.collected) continue;
-        const dist = distance(this.x, this.y, ammo.x, ammo.y);
-        if (dist < minDist) {
-          minDist = dist;
-          target = { x: ammo.x, y: ammo.y, isAmmo: true, isUrgent: true };
-        }
-      }
-      if (target) {
-        this.moveAndAttack(target);
-        return;
-      }
-    }
-
-    // === PRIORITY 2: KOTH ZONE (PRIMARY GOAL!) ===
-    if (GameState.kothZone && this.ammoCount > 0) {
+    // === PRIORITY 1: KOTH ZONE (Primary Objective - XP + Points!) ===
+    if (GameState.kothZone && this.ammoCount > 2) {
       const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
       
-      // ALWAYS seeking KOTH
-      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 50) {
-        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
+      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 100) {
+        // Far from KOTH - head there
+        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, priority: 1, isKOTH: true };
+      } else if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS) {
+        // Near KOTH - prioritize it over combat
+        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, priority: 1, isKOTH: true };
       } else {
-        // IN/NEAR KOTH - fight anyone nearby!
+        // IN KOTH - defend it! Fight anyone nearby
         for (const f of GameState.fighters) {
           if (!f.alive || f === this || isZephyr(f.username)) continue;
           const dist = distance(this.x, this.y, f.x, f.y);
-          if (dist < 450 && dist < minDist) {
-            minDist = dist;
-            target = f; // ATTACK!
+          if (dist < 400) {
+            target = f;
+            target.priority = 1; // High priority - defending KOTH
+            break;
           }
         }
         if (!target) {
-          target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true, isHolding: true };
+          target = { x: GameState.kothZone.x, y: GameState.kothZone.y, priority: 1, isKOTH: true, isHolding: true };
         }
       }
     }
 
-    // === PRIORITY 3: FIGHT EVERYONE (HEROES + ENEMIES) ===
+    // === PRIORITY 2: AMMO (Need Resources) ===
+    if (!target && this.ammoCount < 8 && GameState.ammo.length > 0) {
+      for (const ammo of GameState.ammo) {
+        if (ammo.collected) continue;
+        const dist = distance(this.x, this.y, ammo.x, ammo.y);
+        if (dist < 550 && dist < minDist) {
+          minDist = dist;
+          target = { x: ammo.x, y: ammo.y, priority: 2, isAmmo: true };
+          if (this.ammoCount < 3) target.isUrgent = true; // Critical ammo!
+        }
+      }
+    }
+
+    // === PRIORITY 3: COMBAT (Fight Players & Enemies) ===
     if (!target && this.ammoCount > 0) {
       for (const f of GameState.fighters) {
         if (!f.alive || f === this || isZephyr(f.username)) continue;
         
         const dist = distance(this.x, this.y, f.x, f.y);
-        if (dist > 700) continue;
+        if (dist > 650) continue;
         
-        // ATTACK EVERYONE! Heroes AND enemies!
-        let priority = 1.0;
-        if (f.isEnemy) priority *= 0.9;
-        if (f.hp < f.maxHp * 0.5) priority *= 0.8;
+        // Fight everyone - players AND enemies
+        let priorityMult = 1.0;
+        if (f.isEnemy) priorityMult *= 0.9; // Slight preference for enemies
+        if (f.hp < f.maxHp * 0.5) priorityMult *= 0.85; // Prefer wounded
+        if (f.level > this.level) priorityMult *= 1.2; // Avoid higher level
         
-        const score = dist * priority;
+        const score = dist * priorityMult;
         if (score < minDist) {
           minDist = score;
           target = f;
+          target.priority = 3;
         }
       }
     }
 
-    // === PRIORITY 4: MORE AMMO ===
-    if (!target && GameState.ammo.length > 0 && this.ammoCount < 15) {
-      for (const ammo of GameState.ammo) {
-        if (ammo.collected) continue;
-        const dist = distance(this.x, this.y, ammo.x, ammo.y);
-        if (dist < 600 && dist < minDist) {
-          minDist = dist;
-          target = { x: ammo.x, y: ammo.y, isAmmo: true };
+    // === PRIORITY 4: HEALTH & MOVEMENT (Survival) ===
+    // Low health? Seek Zephyr or ammo
+    const hpPct = this.hp / this.maxHp;
+    if (!target && hpPct < 0.4) {
+      // Seek Zephyr for healing
+      if (GameState.zephyr && GameState.zephyr.alive) {
+        const dist = distance(this.x, this.y, GameState.zephyr.x, GameState.zephyr.y);
+        if (dist > 100) {
+          target = { x: GameState.zephyr.x, y: GameState.zephyr.y, priority: 4, isHealing: true };
+        }
+      }
+      // Or seek ammo to survive
+      if (!target && GameState.ammo.length > 0) {
+        for (const ammo of GameState.ammo) {
+          if (ammo.collected) continue;
+          const dist = distance(this.x, this.y, ammo.x, ammo.y);
+          if (dist < minDist) {
+            minDist = dist;
+            target = { x: ammo.x, y: ammo.y, priority: 4, isAmmo: true };
+          }
         }
       }
     }
 
-    // === FALLBACK: ALWAYS MOVE TO KOTH ===
+    // === PRIORITY 5: KEEP MOVING (Avoid Idle Death) ===
     if (!target) {
+      // Default: Move to KOTH or patrol
       if (GameState.kothZone) {
-        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
+        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, priority: 5, isKOTH: true };
       } else {
+        const seed = GameClock.getSeed();
         const edges = [
           { x: 200, y: 200 },
           { x: GameState.width - 200, y: 200 },
           { x: 200, y: GameState.height - 200 },
           { x: GameState.width - 200, y: GameState.height - 200 },
         ];
-        target = edges[Math.floor(Math.random() * edges.length)];
+        target = edges[GameClock.randomInt(0, edges.length - 1, seed)];
+        target.priority = 5;
         target.isPatrol = true;
       }
     }
@@ -1251,17 +1267,54 @@ class Fighter {
     const dmgColor = isHeal ? '#0f8' : '#f66';
     showFloatingText(this.x, this.y - 20, (isHeal ? '+' : '-') + Math.abs(Math.round(amount)), dmgColor);
 
-    // POINTS FOR DAMAGE! (small but adds up)
+    // AWARD XP & POINTS TO ATTACKER!
     if (!isHeal && attacker && !attacker.isEnemy && !isZephyr(attacker.username)) {
       const pdata = getPlayerData(attacker.username);
+      
+      // Points for damage
       const pointsGained = Math.min(Math.abs(amount), 10);
       pdata.points += pointsGained;
-      if (Math.random() < 0.15) {
-        showFloatingText(attacker.x, attacker.y - 50, '+' + pointsGained + 'pts', '#fa0');
+      
+      // XP for combat activity (Priority 3)
+      pdata.xp += CONFIG.XP_PER_HIT;
+      
+      // Check for level up!
+      this.checkLevelUp(attacker);
+      
+      const seed = GameClock.getSeed();
+      if (GameClock.random(seed) < 0.15) {
+        showFloatingText(attacker.x, attacker.y - 50, '+' + pointsGained + 'pts +' + CONFIG.XP_PER_HIT + 'xp', '#fa0');
       }
     }
 
     if (this.hp <= 0) this.die(attacker);
+  }
+  
+  checkLevelUp(fighter) {
+    if (!fighter || fighter.isEnemy || isZephyr(fighter.username)) return;
+    
+    const pdata = getPlayerData(fighter.username);
+    if (pdata.level >= 10) return; // Max level
+    
+    // Check if enough XP to level up
+    if (pdata.xp >= CONFIG.XP_CURVE[pdata.level]) {
+      pdata.level++;
+      
+      // LEVEL UP BONUSES!
+      fighter.maxHp += CONFIG.LEVEL_HP_BONUS;
+      fighter.attack += CONFIG.LEVEL_ATK_BONUS;
+      fighter.speed += CONFIG.LEVEL_SPD_BONUS;
+      
+      // Full heal on level up!
+      if (CONFIG.HEAL_ON_LEVELUP) {
+        fighter.hp = fighter.maxHp;
+        showFloatingText(fighter.x, fighter.y - 60, 'LEVEL ' + pdata.level + '! HEALED!', '#0ff');
+      } else {
+        showFloatingText(fighter.x, fighter.y - 60, 'LEVEL ' + pdata.level + '!', '#ff0');
+      }
+      
+      console.log('[LEVEL UP] ' + fighter.username + ' → Level ' + pdata.level + ' (HP:' + fighter.maxHp + ' ATK:' + fighter.attack + ' SPD:' + fighter.speed + ')');
+    }
   }
 
   die(killer) {
@@ -1742,16 +1795,24 @@ function updateKOTHZone() {
     GameState.kothZone.element = zoneEl;
   }
 
+  // === PRIORITY 1: KOTH ZONE REWARDS (XP + Points) ===
   if (GameState.kothZone) {
     for (const f of GameState.fighters) {
       if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
       const d = distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y);
       if (d <= CONFIG.KOTH_ZONE_RADIUS) {
         const pdata = getPlayerData(f.username);
-        pdata.points += CONFIG.KOTH_POINTS_PER_SEC * 0.5;
-        // Show points notification occasionally
-        if (Math.random() < 0.01) {
-          showFloatingText(f.x, f.y - 60, '+POINTS', '#ff0');
+        
+        // Award points AND XP for holding KOTH!
+        pdata.points += CONFIG.KOTH_POINTS_PER_SEC * dt;
+        pdata.xp += CONFIG.XP_PER_KOTH_SECOND * dt;
+        
+        // Check for level up
+        f.checkLevelUp(f);
+        
+        const seed = GameClock.getSeed();
+        if (GameClock.random(seed) < 0.02) {
+          showFloatingText(f.x, f.y - 60, '+XP +PTS', '#ff0');
         }
       }
     }
