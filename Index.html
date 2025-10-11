@@ -214,14 +214,15 @@ const CONFIG = {
   INACTIVE_THRESHOLD: 30000,
   AI_SPAWN_INTERVAL: 20000,
   
-  // KOTH Settings
-  KOTH_ZONE_RADIUS: 140,
-  KOTH_POINTS_PER_SEC: 2,
+  // KOTH Settings - smaller and moves more frequently
+  KOTH_ZONE_RADIUS: 80,  // Smaller ring
+  KOTH_POINTS_PER_SEC: 3,
+  KOTH_MOVE_INTERVAL: 15000, // Move every 15 seconds
   
   // Center screen avoidance (for stream overlay)
   CENTER_AVOID_X: 960,  // 1920/2
   CENTER_AVOID_Y: 540,  // 1080/2
-  CENTER_AVOID_RADIUS: 200,
+  CENTER_AVOID_RADIUS: 250, // Larger avoidance zone
   
   // Progression
   XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
@@ -448,6 +449,7 @@ class Fighter {
 
   spawnPosition() {
     if (this.isEnemy) {
+      // Enemies spawn from TOP of screen
       this.x = Math.random() * GameState.width;
       this.y = -50;
     } else if (isZephyr(this.username)) {
@@ -475,18 +477,24 @@ class Fighter {
   }
 
   updateDisplay() {
-    const hpPct = Math.max(0, this.hp / this.maxHp);
-    const bars = Math.ceil(hpPct * 5);
-    const hpBar = '_'.repeat(bars) + '"'.repeat(5 - bars);
-
+    // Clean minimal display: username and 3 ASCII characters
     const nameDisplay = this.username.substring(0, 10);
-    const ammoDisplay = this.isEnemy ? '' : ' [' + this.ammoCount + ']';
-
-    const line4 = isZephyr(this.username)
-      ? hpBar + ' SUPPORT' + ammoDisplay
-      : hpBar + ammoDisplay;
-
-    this.element.textContent = this.ascii + '\n' + nameDisplay + '\nL' + this.level + '\n' + line4;
+    const arch = ARCHETYPES[this.archetype];
+    
+    // 3 characters: [Class][Health][Weapon]
+    const hpPct = Math.max(0, this.hp / this.maxHp);
+    let healthChar = '█'; // Full health
+    if (hpPct < 0.25) healthChar = '░';
+    else if (hpPct < 0.5) healthChar = '▒';
+    else if (hpPct < 0.75) healthChar = '▓';
+    
+    const weaponChar = WEAPONS[this.weaponType].icon;
+    const displayChars = this.ascii + healthChar + weaponChar;
+    
+    // Ammo indicator for players
+    const ammoDisplay = this.isEnemy ? '' : '[' + this.ammoCount + ']';
+    
+    this.element.textContent = nameDisplay + '\n' + displayChars + ammoDisplay;
   }
 
   collectAmmo(word) {
@@ -774,12 +782,12 @@ const ARCHETYPES = {
 };
 
 const WEAPONS = {
-  sword:  { projectile: '-',  damage: 8,  speed: 110, color: '#f88' },
-  staff:  { projectile: '+',  damage: 12, speed: 95,  color: '#88f' },
-  dagger: { projectile: '>',  damage: 9,  speed: 130, color: '#8f8' },
-  hammer: { projectile: '.',  damage: 7,  speed: 80,  color: '#aaa' },
-  bow:    { projectile: '->', damage: 10, speed: 120, color: '#af8' },
-  wand:   { projectile: '+',  damage: -10, speed: 110, color: '#0f8' }, // Heals
+  sword:  { projectile: '-',  damage: 8,  speed: 110, color: '#f88', icon: '†' },
+  staff:  { projectile: '+',  damage: 12, speed: 95,  color: '#88f', icon: '‡' },
+  dagger: { projectile: '>',  damage: 9,  speed: 130, color: '#8f8', icon: '¡' },
+  hammer: { projectile: '.',  damage: 7,  speed: 80,  color: '#aaa', icon: '¶' },
+  bow:    { projectile: '->', damage: 10, speed: 120, color: '#af8', icon: '↑' },
+  wand:   { projectile: '+',  damage: -10, speed: 110, color: '#0f8', icon: '♥' }, // Heals
 };
 
 // ============================================================================
@@ -1042,12 +1050,40 @@ function spawnBoss() {
 
 function updateKOTHZone() {
   const now = performance.now();
-  if (!GameState.kothZone || now - GameState.lastKOTHMove > 25000) {
+  if (!GameState.kothZone || now - GameState.lastKOTHMove > CONFIG.KOTH_MOVE_INTERVAL) {
     if (GameState.kothZone && GameState.kothZone.element) {
       GameState.kothZone.element.remove();
     }
-    const x = 220 + Math.random() * (GameState.width - 440);
-    const y = 220 + Math.random() * (GameState.height - 440);
+    
+    // Spawn away from center, in corners or edges
+    let x, y;
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) { // Top half
+      x = 150 + Math.random() * (GameState.width - 300);
+      y = 100 + Math.random() * 200;
+    } else if (side === 1) { // Bottom half
+      x = 150 + Math.random() * (GameState.width - 300);
+      y = GameState.height - 300 + Math.random() * 200;
+    } else if (side === 2) { // Left side
+      x = 100 + Math.random() * 200;
+      y = 150 + Math.random() * (GameState.height - 300);
+    } else { // Right side
+      x = GameState.width - 300 + Math.random() * 200;
+      y = 150 + Math.random() * (GameState.height - 300);
+    }
+    
+    // Ensure it's not in center avoidance zone
+    const distToCenter = distance(x, y, CONFIG.CENTER_AVOID_X, CONFIG.CENTER_AVOID_Y);
+    if (distToCenter < CONFIG.CENTER_AVOID_RADIUS + CONFIG.KOTH_ZONE_RADIUS) {
+      // Push it further away
+      const dx = x - CONFIG.CENTER_AVOID_X;
+      const dy = y - CONFIG.CENTER_AVOID_Y;
+      const d = Math.sqrt(dx*dx + dy*dy) || 1;
+      const pushDist = CONFIG.CENTER_AVOID_RADIUS + CONFIG.KOTH_ZONE_RADIUS + 50;
+      x = CONFIG.CENTER_AVOID_X + (dx / d) * pushDist;
+      y = CONFIG.CENTER_AVOID_Y + (dy / d) * pushDist;
+    }
+    
     GameState.kothZone = { x, y };
     GameState.lastKOTHMove = now;
 
@@ -1159,16 +1195,52 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-function spawnTestFighters() {
-  const testNames = ['TestWarrior','TestMage','TestRogue','TestTank','TestRanger','TestHealer'];
-  const name = testNames[Math.floor(Math.random() * testNames.length)] + Math.floor(Math.random() * 100);
-  const f = spawnPlayer(name);
-  const testWords = ['attack','defend','heal','fire','ice','storm'];
-  const message = [];
-  for (let i = 0; i < 2; i++) message.push(testWords[Math.floor(Math.random() * testWords.length)]);
-  spawnAmmo(name, message.join(' '));
-  addChatLine(name, message.join(' '));
-  console.log('[TEST] Spawned:', name, f.color);
+// Test mode spawner - creates proper combat scenario
+let testHero1 = null;
+let testHero2 = null;
+let testInitialized = false;
+
+function initializeTestMode() {
+  if (testInitialized) return;
+  testInitialized = true;
+  
+  console.log('[TEST] Initializing combat test...');
+  
+  // Spawn Hero 1 on LEFT side
+  testHero1 = new Fighter('HeroLeft', false, false);
+  testHero1.x = 150; // Left side
+  testHero1.y = GameState.height / 2;
+  testHero1.ammoCount = 10; // Give them ammo to fight
+  testHero1.archetype = 'warrior';
+  testHero1.ascii = 'W';
+  GameState.fighters.push(testHero1);
+  GameState.playerData['HeroLeft'] = getPlayerData('HeroLeft');
+  console.log('[TEST] Spawned HeroLeft at left side');
+  
+  // Spawn Hero 2 on RIGHT side
+  testHero2 = new Fighter('HeroRight', false, false);
+  testHero2.x = GameState.width - 150; // Right side
+  testHero2.y = GameState.height / 2;
+  testHero2.ammoCount = 10; // Give them ammo to fight
+  testHero2.archetype = 'mage';
+  testHero2.ascii = 'M';
+  GameState.fighters.push(testHero2);
+  GameState.playerData['HeroRight'] = getPlayerData('HeroRight');
+  console.log('[TEST] Spawned HeroRight at right side');
+  
+  // Spawn some test ammo
+  for (let i = 0; i < 5; i++) {
+    const words = ['power', 'strike', 'blast', 'fury', 'rage'];
+    spawnAmmo('Test', words[i], false);
+  }
+  
+  console.log('[TEST] Heroes will seek each other and fight!');
+  console.log('[TEST] Zephyr will heal when one is hurt');
+}
+
+function spawnTestEnemies() {
+  console.log('[TEST] Spawning enemy from top');
+  spawnAIEnemy();
 }
 
 function spawnZephyr() {
@@ -1221,21 +1293,26 @@ gameLoop();
 
 if (CONFIG.TEST_MODE) {
   setTimeout(() => {
-    showEventAlert('=== TEST MODE ACTIVE ===', 'Game is running! Fighters will spawn shortly.', '#fa0');
+    showEventAlert('=== TEST MODE ACTIVE ===', 'Combat test initializing...', '#fa0');
   }, 1000);
   
+  // Initialize test combat scenario
   setTimeout(() => {
-    spawnTestFighters();
-    setInterval(spawnTestFighters, 20000);
+    initializeTestMode();
   }, 2000);
   
+  // Spawn test enemies from top every 10 seconds
   setTimeout(() => {
-    showEventAlert('*** NEW FOLLOWER ***', 'TestUser123 just followed the stream!', '#0ff');
-  }, 25000);
+    spawnTestEnemies();
+    setInterval(spawnTestEnemies, 10000);
+  }, 8000);
   
+  // Test follower alert
   setTimeout(() => {
-    showEventAlert('*** SUBSCRIBER ***', 'TestSub456 subscribed to the channel!', '#f0f');
-  }, 50000);
+    showEventAlert('*** NEW FOLLOWER ***', 'TestUser just followed!', '#0ff');
+    const newHero = spawnPlayer('TestFollower');
+    if (newHero) newHero.ammoCount = 5;
+  }, 30000);
 }
 </script>
 </body>
