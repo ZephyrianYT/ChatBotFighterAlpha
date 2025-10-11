@@ -21,6 +21,27 @@ body {
   background: transparent;
 }
 
+/* Center stream area indicator - radial fade overlay for stream visibility */
+#center-zone {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 700px;
+  height: 700px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 40%, transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+  border: 2px dashed rgba(255,255,255,0.08);
+  animation: centerPulse 4s ease-in-out infinite;
+}
+
+@keyframes centerPulse {
+  0%, 100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.02); }
+}
+
 /* HUD */
 #stats-panel {
   position: fixed; top: 20px; left: 20px;
@@ -169,7 +190,9 @@ body {
 </style>
 </head>
 <body>
-<div id="game-container"></div>
+<div id="game-container">
+  <div id="center-zone"></div>
+</div>
 
 <!-- Event Alert Display (15-second notifications) -->
 <div id="event-alert" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
@@ -222,7 +245,9 @@ const CONFIG = {
   // Center screen avoidance (for stream overlay)
   CENTER_AVOID_X: 960,  // 1920/2
   CENTER_AVOID_Y: 540,  // 1080/2
-  CENTER_AVOID_RADIUS: 250, // Larger avoidance zone
+  CENTER_AVOID_RADIUS: 350, // Larger danger zone!
+  CENTER_FADE_START: 450, // Start fading at this distance
+  CENTER_FADE_END: 250, // Fully transparent at this distance
   
   // Progression
   XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
@@ -500,6 +525,32 @@ class Fighter {
   }
 
   updateDisplay() {
+    if (!this.alive) {
+      this.element.style.opacity = '0.3';
+      return;
+    }
+    
+    // Update position
+    this.element.style.left = this.x + 'px';
+    this.element.style.top = this.y + 'px';
+    this.element.style.color = this.color;
+    
+    // RADIAL OPACITY FADE - keeps center clear for stream!
+    const distToCenter = distance(this.x, this.y, CONFIG.CENTER_AVOID_X, CONFIG.CENTER_AVOID_Y);
+    let opacity = 1.0;
+    if (distToCenter < CONFIG.CENTER_FADE_START) {
+      if (distToCenter < CONFIG.CENTER_FADE_END) {
+        // Very close to center - almost invisible
+        opacity = 0.1;
+      } else {
+        // Fade zone - linear interpolation
+        const fadeRange = CONFIG.CENTER_FADE_START - CONFIG.CENTER_FADE_END;
+        const fadeAmount = (distToCenter - CONFIG.CENTER_FADE_END) / fadeRange;
+        opacity = 0.1 + (fadeAmount * 0.9); // 0.1 to 1.0
+      }
+    }
+    this.element.style.opacity = opacity.toString();
+    
     // Clean minimal display with STATUS EFFECTS
     const nameDisplay = this.username.substring(0, 10);
     
@@ -609,18 +660,25 @@ class Fighter {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
-    // CENTER IS NO MAN'S LAND - STRONGLY avoid it!
+    // CENTER IS NO MAN'S LAND - RADIAL PUSH AWAY! (for stream visibility)
     const dxCenter = this.x - CONFIG.CENTER_AVOID_X;
     const dyCenter = this.y - CONFIG.CENTER_AVOID_Y;
     const distToCenter = Math.sqrt(dxCenter*dxCenter + dyCenter*dyCenter);
     if (distToCenter < CONFIG.CENTER_AVOID_RADIUS) {
-      // STRONG push away from center
-      const pushForce = (CONFIG.CENTER_AVOID_RADIUS - distToCenter) / CONFIG.CENTER_AVOID_RADIUS;
-      this.vx += (dxCenter / distToCenter) * pushForce * this.speed * 1.5;
-      this.vy += (dyCenter / distToCenter) * pushForce * this.speed * 1.5;
+      // VERY STRONG RADIAL PUSH - entities fade and get pushed out
+      const pushStrength = (CONFIG.CENTER_AVOID_RADIUS - distToCenter) / CONFIG.CENTER_AVOID_RADIUS;
+      const pushForce = pushStrength * 2.5; // INCREASED from 1.5!
       
-      // Extra damage in center (danger zone!)
-      this.hp -= CONFIG.HEALTH_DECAY_RATE * pushForce * 2 * dt;
+      // Push radially away from center point
+      this.vx += (dxCenter / distToCenter) * pushForce * this.speed;
+      this.vy += (dyCenter / distToCenter) * pushForce * this.speed;
+      
+      // HEAVY damage in center (danger zone!)
+      this.hp -= CONFIG.HEALTH_DECAY_RATE * pushForce * 3 * dt;
+      
+      if (Math.random() < 0.01) {
+        showFloatingText(this.x, this.y - 50, 'LEAVE CENTER!', '#f00');
+      }
     }
 
     this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
@@ -1161,6 +1219,20 @@ class Projectile {
     this.y += this.vy * dt;
     this.element.style.left = this.x + 'px';
     this.element.style.top = this.y + 'px';
+    
+    // OPACITY FADE for projectiles near center too!
+    const distToCenter = distance(this.x, this.y, CONFIG.CENTER_AVOID_X, CONFIG.CENTER_AVOID_Y);
+    let opacity = 1.0;
+    if (distToCenter < CONFIG.CENTER_FADE_START) {
+      if (distToCenter < CONFIG.CENTER_FADE_END) {
+        opacity = 0.2; // Slightly more visible than fighters
+      } else {
+        const fadeRange = CONFIG.CENTER_FADE_START - CONFIG.CENTER_FADE_END;
+        const fadeAmount = (distToCenter - CONFIG.CENTER_FADE_END) / fadeRange;
+        opacity = 0.2 + (fadeAmount * 0.8);
+      }
+    }
+    this.element.style.opacity = opacity.toString();
 
     for (const f of GameState.fighters) {
       if (!f.alive || f === this.owner) continue;
