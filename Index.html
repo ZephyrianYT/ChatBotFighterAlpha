@@ -298,8 +298,11 @@ body {
 <div id="health-monitor">FPS: -- | Time: 0:00 | Entities: 0</div>
 
 <div id="chat-retainer">
-  <h4>. CHAT</h4>
+  <h4>⚔ CHAT TO ENTER COMBAT ⚔</h4>
+  <div class="chat-placeholder">Waiting for warriors...</div>
 </div>
+
+<div id="alert-container"></div>
 
 <script>
 
@@ -1505,6 +1508,37 @@ const STATUS_VISUALS = {
 //
 
 const VisualFX = {
+  // Create stream alert (center screen, 15 seconds)
+  showAlert(title, subtitle = '', duration = 15000) {
+    const alertContainer = document.getElementById('alert-container');
+    if (!alertContainer) return;
+    
+    const alert = document.createElement('div');
+    alert.className = 'stream-alert';
+    
+    const titleEl = document.createElement('div');
+    titleEl.textContent = title;
+    titleEl.style.fontSize = '32px';
+    titleEl.style.marginBottom = subtitle ? '10px' : '0';
+    alert.appendChild(titleEl);
+    
+    if (subtitle) {
+      const subtitleEl = document.createElement('div');
+      subtitleEl.textContent = subtitle;
+      subtitleEl.style.fontSize = '20px';
+      subtitleEl.style.opacity = '0.9';
+      alert.appendChild(subtitleEl);
+    }
+    
+    alertContainer.appendChild(alert);
+    
+    console.log('[ALERT] ' + title + (subtitle ? ' - ' + subtitle : ''));
+    
+    setTimeout(() => {
+      alert.remove();
+    }, duration);
+  },
+  
   // Create weapon flash when shooting
   weaponFlash(x, y, symbol, color) {
     const flash = document.createElement('div');
@@ -1639,6 +1673,66 @@ function getPlayerData(username) {
 }
 
 function isZephyr(username) { return username === 'Zephyr'; }
+
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                        CHAT DISPLAY SYSTEM                                ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+//
+// PURPOSE: Display last 4 chat messages with visual feedback
+//
+
+function addChatMessage(username, message = '') {
+  // Truncate message to 50 characters
+  const truncated = message.substring(0, 50);
+  const fullMessage = truncated + (message.length > 50 ? '...' : '');
+  
+  // Add to buffer (max 4 messages)
+  GameState.chatMessages.push({ username, message: fullMessage, time: Date.now() });
+  if (GameState.chatMessages.length > 4) {
+    GameState.chatMessages.shift(); // Remove oldest
+  }
+  
+  // Update display
+  updateChatDisplay();
+  
+  console.log('[CHAT] ' + username + ': ' + fullMessage);
+}
+
+function updateChatDisplay() {
+  const chatContainer = document.getElementById('chat-retainer');
+  if (!chatContainer) return;
+  
+  // Clear existing messages (keep header)
+  const header = chatContainer.querySelector('h4');
+  chatContainer.innerHTML = '';
+  chatContainer.appendChild(header);
+  
+  // Show placeholder if no messages
+  if (GameState.chatMessages.length === 0) {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'chat-placeholder';
+    placeholder.textContent = 'Waiting for warriors...';
+    chatContainer.appendChild(placeholder);
+    return;
+  }
+  
+  // Display messages (newest at bottom)
+  for (const msg of GameState.chatMessages) {
+    const msgEl = document.createElement('div');
+    msgEl.className = 'chat-message';
+    
+    const usernameEl = document.createElement('span');
+    usernameEl.className = 'username';
+    usernameEl.textContent = msg.username + ': ';
+    
+    const textEl = document.createElement('span');
+    textEl.textContent = msg.message || 'joined the fight!';
+    
+    msgEl.appendChild(usernameEl);
+    msgEl.appendChild(textEl);
+    chatContainer.appendChild(msgEl);
+  }
+}
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
 // ║                    SECTION 8: PROJECTILE CLASS                            ║
