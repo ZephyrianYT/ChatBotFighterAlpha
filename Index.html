@@ -45,25 +45,25 @@ body {
   background: transparent;
 }
 
-/* Center stream area indicator - radial fade overlay for stream visibility */
+/* Center stream area indicator - EXPANDED for better visibility */
 #center-zone {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 700px;
-  height: 700px;
+  width: 960px;   /* EXPANDED from 700px */
+  height: 960px;  /* EXPANDED from 700px */
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 40%, transparent 100%);
+  background: radial-gradient(circle, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.5) 30%, rgba(0,0,0,0.2) 60%, transparent 100%);
   pointer-events: none;
   z-index: 1;
-  border: 2px dashed rgba(255,255,255,0.08);
-  animation: centerPulse 4s ease-in-out infinite;
+  border: 3px dashed rgba(255,100,100,0.15); /* Red tint to show danger */
+  animation: centerPulse 3s ease-in-out infinite;
 }
 
 @keyframes centerPulse {
-  0%, 100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.02); }
+  0%, 100% { opacity: 0.7; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.03); }
 }
 
 /* HUD */
@@ -891,25 +891,35 @@ class Fighter {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
-    // CENTER IS NO MAN'S LAND - RADIAL PUSH AWAY! (for stream visibility)
+    // *** CENTER IS FORBIDDEN ZONE - MASSIVE PUSH + DAMAGE! ***
     const dxCenter = this.x - CONFIG.CENTER_AVOID_X;
     const dyCenter = this.y - CONFIG.CENTER_AVOID_Y;
     const distToCenter = Math.sqrt(dxCenter*dxCenter + dyCenter*dyCenter);
+    
     if (distToCenter < CONFIG.CENTER_AVOID_RADIUS) {
-      // VERY STRONG RADIAL PUSH - entities fade and get pushed out
-      const pushStrength = (CONFIG.CENTER_AVOID_RADIUS - distToCenter) / CONFIG.CENTER_AVOID_RADIUS;
-      const pushForce = pushStrength * 2.5; // INCREASED from 1.5!
-      
-      // Push radially away from center point
-      this.vx += (dxCenter / distToCenter) * pushForce * this.speed;
-      this.vy += (dyCenter / distToCenter) * pushForce * this.speed;
-      
-      // HEAVY damage in center (danger zone!)
-      this.hp -= CONFIG.HEALTH_DECAY_RATE * pushForce * 3 * dt;
-      
-      if (Math.random() < 0.01) {
-        showFloatingText(this.x, this.y - 50, 'LEAVE CENTER!', '#f00');
+      // FORCE FLEE BEHAVIOR - override current AI
+      if (!isZephyr(this.username)) {
+        this.inDangerZone = true;
+        
+        // MASSIVE RADIAL PUSH - get out NOW!
+        const pushStrength = (CONFIG.CENTER_AVOID_RADIUS - distToCenter) / CONFIG.CENTER_AVOID_RADIUS;
+        const pushForce = pushStrength * 3.5; // MASSIVE! (was 2.5)
+        
+        // Push radially away from center point
+        this.vx += (dxCenter / distToCenter) * pushForce * this.speed;
+        this.vy += (dyCenter / distToCenter) * pushForce * this.speed;
+        
+        // EXTREME damage in center (danger zone!)
+        this.hp -= CONFIG.HEALTH_DECAY_RATE * pushForce * 5 * dt; // 5x damage!
+        
+        // Show warning more often
+        const seed = GameClock.getSeed();
+        if (GameClock.random(seed) < 0.03) {
+          showFloatingText(this.x, this.y - 50, 'FORBIDDEN ZONE!', '#f00');
+        }
       }
+    } else {
+      this.inDangerZone = false;
     }
 
     this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
@@ -924,6 +934,23 @@ class Fighter {
     // *** EVERYONE FIGHTS EVERYONE - KOTH IS KING ***
     let target = null;
     let minDist = Infinity;
+
+    // === PRIORITY 0: ESCAPE CENTER IF IN DANGER ZONE! ===
+    if (this.inDangerZone) {
+      // FORCED FLEE - get out of center NOW!
+      const dx = this.x - CONFIG.CENTER_AVOID_X;
+      const dy = this.y - CONFIG.CENTER_AVOID_Y;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      
+      // Calculate escape point (directly away from center)
+      const escapeDistance = 550; // Beyond fade zone
+      const targetX = CONFIG.CENTER_AVOID_X + (dx / dist) * escapeDistance;
+      const targetY = CONFIG.CENTER_AVOID_Y + (dy / dist) * escapeDistance;
+      
+      target = { x: targetX, y: targetY, isFlee: true, isUrgent: true, isCenterEscape: true };
+      this.moveAndAttack(target);
+      return; // Override all other priorities!
+    }
 
     // === PRIORITY 1: DESPERATE FOR AMMO (< 3 shots) ===
     if (this.ammoCount < 3 && GameState.ammo.length > 0) {
@@ -1064,6 +1091,18 @@ class Fighter {
     // *** ENEMIES: HUNT EVERYONE, CONTEST KOTH ***
     if (this.y > GameState.height + 50) { this.destroy(); return; }
 
+    // === PRIORITY 0: ESCAPE CENTER IF IN DANGER ZONE! ===
+    if (this.inDangerZone) {
+      const dx = this.x - CONFIG.CENTER_AVOID_X;
+      const dy = this.y - CONFIG.CENTER_AVOID_Y;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      
+      // Escape radially
+      this.vx += (dx / dist) * this.speed * 1.5;
+      this.vy += (dy / dist) * this.speed * 1.5;
+      return; // Override all other AI!
+    }
+
     let target = null;
     let minDist = 700;
     
@@ -1128,6 +1167,13 @@ class Fighter {
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    
+    // CENTER ESCAPE (highest priority!)
+    if (target.isCenterEscape) {
+      this.vx += (dx / dist) * this.speed * 1.8; // MAXIMUM SPEED!
+      this.vy += (dy / dist) * this.speed * 1.8;
+      return;
+    }
     
     // URGENT (low ammo)
     if (target.isUrgent) {
