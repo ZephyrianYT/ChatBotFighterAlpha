@@ -248,6 +248,7 @@ const GameState = {
   lastUpdate: performance.now(),
   zephyrRespawnTime: null, // Track when Zephyr can respawn
   zephyr: null, // Reference to Zephyr
+  playerRespawnTimes: {}, // Track when each player can respawn (username: timestamp)
 };
 
 window.addEventListener('resize', () => {
@@ -431,11 +432,14 @@ class Fighter {
     this.color = isZephyr(username) ? '#0ff' : arch.color;
     this.ascii = isZephyr(username) ? '@' : arch.ascii;
     this.projectile = isZephyr(username) ? '+' : arch.projectile;
+    this.melee = isZephyr(username) ? '♥' : arch.melee;
     this.weaponIcon = isZephyr(username) ? '♥' : arch.icon;
     this.statusType = isZephyr(username) ? 'heal' : arch.status;
     this.statusChance = isZephyr(username) ? 0.9 : arch.chance;
 
-    this.ammoCount = 0;
+    // START WITH AMMO! (seed-based amount)
+    this.ammoCount = isZephyr(username) ? 999 : (isEnemy ? 15 : arch.ammo);
+    this.startingAmmo = this.ammoCount;
     this.vx = 0;
     this.vy = 0;
     this.lastAttack = 0;
@@ -450,7 +454,7 @@ class Fighter {
     // PERSONALITY TRAITS - makes fighters unique and active!
     this.personality = this.assignPersonality();
     this.behaviorTimer = 0;
-    this.currentBehavior = 'aggressive';
+    this.currentBehavior = 'greedy'; // GET POINTS!
     this.lastBehaviorChange = 0;
 
     this.anchorX = GameState.width / 2;
@@ -733,16 +737,26 @@ class Fighter {
       }
     }
 
-    // ALWAYS HAVE A GOAL - never idle!
+    // ALWAYS HAVE A GOAL - GET POINTS!
     if (!target) {
-      // Default goal: KOTH zone or safe edge
+      // PRIMARY GOAL: GET TO KOTH FOR POINTS!
       if (GameState.kothZone && this.ammoCount > 0) {
         const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
         if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 50) {
           target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
+        } else {
+          // Already in KOTH? Look for kills for more points!
+          for (const f of GameState.fighters) {
+            if (!f.alive || f === this || isZephyr(f.username)) continue;
+            const dist = distance(this.x, this.y, f.x, f.y);
+            if (dist < 400) {
+              target = f;
+              break;
+            }
+          }
         }
       } else {
-        // Move to safe edge to avoid idle decay
+        // No ammo? Get some then get points!
         const edges = [
           { x: 150, y: 150 },
           { x: GameState.width - 150, y: 150 },
@@ -946,9 +960,14 @@ class Fighter {
     const dmgColor = isHeal ? '#0f8' : '#f66';
     showFloatingText(this.x, this.y - 20, (isHeal ? '+' : '-') + Math.abs(Math.round(amount)), dmgColor);
 
+    // POINTS FOR DAMAGE! (small but adds up)
     if (!isHeal && attacker && !attacker.isEnemy && !isZephyr(attacker.username)) {
       const pdata = getPlayerData(attacker.username);
-      pdata.points += Math.min(Math.abs(amount), 5);
+      const pointsGained = Math.min(Math.abs(amount), 10);
+      pdata.points += pointsGained;
+      if (Math.random() < 0.15) {
+        showFloatingText(attacker.x, attacker.y - 50, '+' + pointsGained + 'pts', '#fa0');
+      }
     }
 
     if (this.hp <= 0) this.die(attacker);
@@ -991,55 +1010,59 @@ class Fighter {
 // ============================================================================
 
 // SEED-BASED ARCHETYPE GENERATION (0-63 seed determines everything)
+// LOW HP = 1-2 shot kills! Fast, lethal combat
 const ARCHETYPES = [
   // Fire builds (0-9)
-  { ascii: 'X', hp: 80,  atk: 8,  spd: 30, projectile: '-',  color: '#f88', icon: '†', status: 'fire',   chance: 0.3, behavior: 'aggressive' },
-  { ascii: '*', hp: 50,  atk: 12, spd: 25, projectile: '~',  color: '#f40', icon: '※', status: 'fire',   chance: 0.4, behavior: 'tactical' },
-  { ascii: 'W', hp: 90,  atk: 7,  spd: 28, projectile: '=',  color: '#f66', icon: '☼', status: 'fire',   chance: 0.25, behavior: 'determined' },
-  { ascii: 'F', hp: 70,  atk: 10, spd: 32, projectile: '/',  color: '#fa0', icon: '♦', status: 'fire',   chance: 0.35, behavior: 'greedy' },
-  { ascii: '☼', hp: 65,  atk: 9,  spd: 30, projectile: '\\', color: '#f80', icon: '◊', status: 'fire',   chance: 0.2, behavior: 'survivor' },
+  { ascii: 'X', hp: 25,  atk: 15, spd: 30, projectile: '-',  melee: '†', color: '#f88', icon: '†', status: 'fire',   chance: 0.3, behavior: 'greedy', ammo: 18 },
+  { ascii: '*', hp: 20,  atk: 20, spd: 25, projectile: '~',  melee: '※', color: '#f40', icon: '※', status: 'fire',   chance: 0.4, behavior: 'greedy', ammo: 15 },
+  { ascii: 'W', hp: 30,  atk: 12, spd: 28, projectile: '=',  melee: '☼', color: '#f66', icon: '☼', status: 'fire',   chance: 0.25, behavior: 'greedy', ammo: 20 },
+  { ascii: 'F', hp: 22,  atk: 18, spd: 32, projectile: '/',  melee: '♦', color: '#fa0', icon: '♦', status: 'fire',   chance: 0.35, behavior: 'greedy', ammo: 16 },
+  { ascii: '☼', hp: 24,  atk: 16, spd: 30, projectile: '\\', melee: '◊', color: '#f80', icon: '◊', status: 'fire',   chance: 0.2, behavior: 'greedy', ammo: 17 },
   
-  // Ice builds (10-19)
-  { ascii: '*', hp: 50,  atk: 12, spd: 25, projectile: '+',  color: '#88f', icon: '‡', status: 'ice',    chance: 0.3, behavior: 'tactical' },
-  { ascii: 'I', hp: 60,  atk: 11, spd: 22, projectile: '*',  color: '#0cf', icon: '❄', status: 'ice',    chance: 0.35, behavior: 'survivor' },
-  { ascii: '◆', hp: 75,  atk: 8,  spd: 24, projectile: '◊',  color: '#4af', icon: '❋', status: 'ice',    chance: 0.25, behavior: 'determined' },
-  { ascii: 'C', hp: 55,  atk: 13, spd: 23, projectile: '÷',  color: '#0ff', icon: '※', status: 'ice',    chance: 0.4, behavior: 'aggressive' },
-  { ascii: '❅', hp: 70,  atk: 9,  spd: 26, projectile: '○',  color: '#6cf', icon: '◈', status: 'ice',    chance: 0.3, behavior: 'greedy' },
+  // Ice builds (10-19) - LETHAL
+  { ascii: '*', hp: 20,  atk: 20, spd: 25, projectile: '+',  melee: '‡', color: '#88f', icon: '‡', status: 'ice',    chance: 0.3, behavior: 'greedy', ammo: 15 },
+  { ascii: 'I', hp: 23,  atk: 18, spd: 22, projectile: '*',  melee: '❄', color: '#0cf', icon: '❄', status: 'ice',    chance: 0.35, behavior: 'greedy', ammo: 19 },
+  { ascii: '◆', hp: 28,  atk: 14, spd: 24, projectile: '◊',  melee: '❋', color: '#4af', icon: '❋', status: 'ice',    chance: 0.25, behavior: 'greedy', ammo: 21 },
+  { ascii: 'C', hp: 21,  atk: 19, spd: 23, projectile: '÷',  melee: '※', color: '#0ff', icon: '※', status: 'ice',    chance: 0.4, behavior: 'greedy', ammo: 16 },
+  { ascii: '❅', hp: 26,  atk: 15, spd: 26, projectile: '○',  melee: '◈', color: '#6cf', icon: '◈', status: 'ice',    chance: 0.3, behavior: 'greedy', ammo: 18 },
   
-  // Poison builds (20-29) - fast hit and run
-  { ascii: '>', hp: 60,  atk: 10, spd: 40, projectile: '>',  color: '#8f8', icon: '¡', status: 'poison', chance: 0.35, behavior: 'tactical' },
-  { ascii: 'P', hp: 55,  atk: 11, spd: 42, projectile: '→',  color: '#0f0', icon: '☣', status: 'poison', chance: 0.4, behavior: 'aggressive' },
-  { ascii: '☠', hp: 50,  atk: 12, spd: 45, projectile: '»',  color: '#4f4', icon: '¶', status: 'poison', chance: 0.45, behavior: 'hunter' },
-  { ascii: 'V', hp: 58,  atk: 10, spd: 38, projectile: '≫',  color: '#6f6', icon: '☢', status: 'poison', chance: 0.3, behavior: 'greedy' },
-  { ascii: '►', hp: 62,  atk: 9,  spd: 36, projectile: '▸',  color: '#8f4', icon: '♣', status: 'poison', chance: 0.25, behavior: 'survivor' },
+  // Poison builds (20-29) - LETHAL + fast
+  { ascii: '>', hp: 18,  atk: 22, spd: 40, projectile: '>',  melee: '¡', color: '#8f8', icon: '¡', status: 'poison', chance: 0.35, behavior: 'greedy', ammo: 15 },
+  { ascii: 'P', hp: 19,  atk: 21, spd: 42, projectile: '→',  melee: '☣', color: '#0f0', icon: '☣', status: 'poison', chance: 0.4, behavior: 'greedy', ammo: 17 },
+  { ascii: '☠', hp: 17,  atk: 23, spd: 45, projectile: '»',  melee: '¶', color: '#4f4', icon: '¶', status: 'poison', chance: 0.45, behavior: 'greedy', ammo: 14 },
+  { ascii: 'V', hp: 20,  atk: 20, spd: 38, projectile: '≫',  melee: '☢', color: '#6f6', icon: '☢', status: 'poison', chance: 0.3, behavior: 'greedy', ammo: 16 },
+  { ascii: '►', hp: 22,  atk: 18, spd: 36, projectile: '▸',  melee: '♣', color: '#8f4', icon: '♣', status: 'poison', chance: 0.25, behavior: 'greedy', ammo: 18 },
   
-  // Lightning builds (30-39) - fast attacks
-  { ascii: '¥', hp: 55,  atk: 14, spd: 35, projectile: '|',  color: '#ff0', icon: '⚡', status: 'shock',  chance: 0.3, behavior: 'aggressive' },
-  { ascii: 'L', hp: 60,  atk: 13, spd: 33, projectile: '!',  color: '#fe0', icon: '↯', status: 'shock',  chance: 0.35, behavior: 'greedy' },
-  { ascii: '⚡', hp: 50,  atk: 15, spd: 38, projectile: '¦',  color: '#ff4', icon: '※', status: 'shock',  chance: 0.4, behavior: 'hunter' },
-  { ascii: 'Z', hp: 65,  atk: 12, spd: 32, projectile: '†',  color: '#fe4', icon: '◊', status: 'shock',  chance: 0.25, behavior: 'tactical' },
-  { ascii: '↯', hp: 58,  atk: 13, spd: 34, projectile: '‡',  color: '#fd0', icon: '♦', status: 'shock',  chance: 0.3, behavior: 'determined' },
+  // Lightning builds (30-39) - LETHAL + fast attacks
+  { ascii: '¥', hp: 19,  atk: 21, spd: 35, projectile: '|',  melee: '⚡', color: '#ff0', icon: '⚡', status: 'shock',  chance: 0.3, behavior: 'greedy', ammo: 16 },
+  { ascii: 'L', hp: 21,  atk: 19, spd: 33, projectile: '!',  melee: '↯', color: '#fe0', icon: '↯', status: 'shock',  chance: 0.35, behavior: 'greedy', ammo: 18 },
+  { ascii: '⚡', hp: 17,  atk: 23, spd: 38, projectile: '¦',  melee: '※', color: '#ff4', icon: '※', status: 'shock',  chance: 0.4, behavior: 'greedy', ammo: 15 },
+  { ascii: 'Z', hp: 24,  atk: 17, spd: 32, projectile: '†',  melee: '◊', color: '#fe4', icon: '◊', status: 'shock',  chance: 0.25, behavior: 'greedy', ammo: 19 },
+  { ascii: '↯', hp: 20,  atk: 20, spd: 34, projectile: '‡',  melee: '♦', color: '#fd0', icon: '♦', status: 'shock',  chance: 0.3, behavior: 'greedy', ammo: 17 },
   
-  // Earth/Physical builds (40-49) - tanky
-  { ascii: '#', hp: 120, atk: 5,  spd: 20, projectile: '.',  color: '#aaa', icon: '¶', status: 'stun',   chance: 0.2, behavior: 'determined' },
-  { ascii: '■', hp: 130, atk: 4,  spd: 18, projectile: '◘',  color: '#888', icon: '◙', status: 'stun',   chance: 0.25, behavior: 'survivor' },
-  { ascii: 'T', hp: 110, atk: 6,  spd: 22, projectile: '▬',  color: '#964', icon: '■', status: 'stun',   chance: 0.15, behavior: 'tactical' },
-  { ascii: '▓', hp: 115, atk: 5,  spd: 21, projectile: '▪',  color: '#753', icon: '▓', status: 'stun',   chance: 0.2, behavior: 'aggressive' },
-  { ascii: '♦', hp: 105, atk: 7,  spd: 23, projectile: '♦',  color: '#a86', icon: '◆', status: 'stun',   chance: 0.18, behavior: 'greedy' },
+  // Earth/Physical builds (40-49) - Still squishy but exist
+  { ascii: '#', hp: 35,  atk: 12, spd: 20, projectile: '.',  melee: '¶', color: '#aaa', icon: '¶', status: 'stun',   chance: 0.2, behavior: 'greedy', ammo: 25 },
+  { ascii: '■', hp: 38,  atk: 11, spd: 18, projectile: '◘',  melee: '◙', color: '#888', icon: '◙', status: 'stun',   chance: 0.25, behavior: 'greedy', ammo: 27 },
+  { ascii: 'T', hp: 32,  atk: 13, spd: 22, projectile: '▬',  melee: '■', color: '#964', icon: '■', status: 'stun',   chance: 0.15, behavior: 'greedy', ammo: 23 },
+  { ascii: '▓', hp: 34,  atk: 12, spd: 21, projectile: '▪',  melee: '▓', color: '#753', icon: '▓', status: 'stun',   chance: 0.2, behavior: 'greedy', ammo: 24 },
+  { ascii: '♦', hp: 30,  atk: 14, spd: 23, projectile: '♦',  melee: '◆', color: '#a86', icon: '◆', status: 'stun',   chance: 0.18, behavior: 'greedy', ammo: 22 },
   
-  // Wind/Speed builds (50-59) - fast movement
-  { ascii: '1', hp: 65,  atk: 9,  spd: 35, projectile: '->', color: '#af8', icon: '↑', status: 'slow',   chance: 0.2, behavior: 'greedy' },
-  { ascii: '↑', hp: 60,  atk: 10, spd: 38, projectile: '↗',  color: '#8fa', icon: '↟', status: 'slow',   chance: 0.25, behavior: 'hunter' },
-  { ascii: 'R', hp: 62,  atk: 9,  spd: 36, projectile: '⇒',  color: '#6f8', icon: '⇑', status: 'slow',   chance: 0.22, behavior: 'tactical' },
-  { ascii: '⇑', hp: 58,  atk: 11, spd: 40, projectile: '⇗',  color: '#4fa', icon: '↾', status: 'slow',   chance: 0.28, behavior: 'aggressive' },
-  { ascii: 'A', hp: 64,  atk: 8,  spd: 34, projectile: '➤',  color: '#8f6', icon: '➢', status: 'slow',   chance: 0.2, behavior: 'survivor' },
+  // Wind/Speed builds (50-59) - LETHAL + fast movement
+  { ascii: '1', hp: 20,  atk: 20, spd: 35, projectile: '->', melee: '↑', color: '#af8', icon: '↑', status: 'slow',   chance: 0.2, behavior: 'greedy', ammo: 17 },
+  { ascii: '↑', hp: 18,  atk: 22, spd: 38, projectile: '↗',  melee: '↟', color: '#8fa', icon: '↟', status: 'slow',   chance: 0.25, behavior: 'greedy', ammo: 15 },
+  { ascii: 'R', hp: 22,  atk: 18, spd: 36, projectile: '⇒',  melee: '⇑', color: '#6f8', icon: '⇑', status: 'slow',   chance: 0.22, behavior: 'greedy', ammo: 18 },
+  { ascii: '⇑', hp: 19,  atk: 21, spd: 40, projectile: '⇗',  melee: '↾', color: '#4fa', icon: '↾', status: 'slow',   chance: 0.28, behavior: 'greedy', ammo: 16 },
+  { ascii: 'A', hp: 23,  atk: 17, spd: 34, projectile: '➤',  melee: '➢', color: '#8f6', icon: '➢', status: 'slow',   chance: 0.2, behavior: 'greedy', ammo: 19 },
   
-  // Holy/Support (60-63) - healing/buffs
-  { ascii: '+', hp: 55,  atk: 3,  spd: 28, projectile: '+',  color: '#0f8', icon: '♥', status: 'heal',   chance: 0.8, behavior: 'support' },
-  { ascii: '♥', hp: 60,  atk: 2,  spd: 30, projectile: '♥',  color: '#f8f', icon: '♡', status: 'heal',   chance: 0.9, behavior: 'support' },
-  { ascii: '☼', hp: 58,  atk: 4,  spd: 29, projectile: '☼',  color: '#ff8', icon: '✦', status: 'heal',   chance: 0.7, behavior: 'support' },
-  { ascii: 'H', hp: 62,  atk: 3,  spd: 27, projectile: '◊',  color: '#8ff', icon: '✚', status: 'heal',   chance: 0.85, behavior: 'support' },
+  // Holy/Support (60-63) - healing/buffs (Zephyr only)
+  { ascii: '+', hp: 40,  atk: 10, spd: 28, projectile: '+',  melee: '♥', color: '#0f8', icon: '♥', status: 'heal',   chance: 0.8, behavior: 'support', ammo: 999 },
+  { ascii: '♥', hp: 45,  atk: 12, spd: 30, projectile: '♥',  melee: '♡', color: '#f8f', icon: '♡', status: 'heal',   chance: 0.9, behavior: 'support', ammo: 999 },
+  { ascii: '☼', hp: 42,  atk: 11, spd: 29, projectile: '☼',  melee: '✦', color: '#ff8', icon: '✦', status: 'heal',   chance: 0.7, behavior: 'support', ammo: 999 },
+  { ascii: 'H', hp: 43,  atk: 10, spd: 27, projectile: '◊',  melee: '✚', color: '#8ff', icon: '✚', status: 'heal',   chance: 0.85, behavior: 'support', ammo: 999 },
 ];
+
+// Player death cooldowns (10 minutes)
+const PLAYER_RESPAWN_COOLDOWN = 10 * 60 * 1000; // 10 minutes
 
 // Status effect visual markers
 const STATUS_VISUALS = {
@@ -1244,14 +1267,29 @@ function distance(x1, y1, x2, y2) {
 // ============================================================================
 
 function spawnPlayer(username) {
+  // Check if player already has a hero alive
   const existing = GameState.fighters.find(f => f.username === username && f.alive && !f.isEnemy);
   if (existing) {
-    existing.hp = Math.min(existing.maxHp, existing.hp + 16);
-    showFloatingText(existing.x, existing.y - 30, '+16 HP', '#0f0');
+    // Can't spawn another! Just give HP boost
+    existing.hp = Math.min(existing.maxHp, existing.hp + 5);
+    showFloatingText(existing.x, existing.y - 30, '+5 HP', '#0f0');
     return existing;
   }
+  
+  // Check if player is on cooldown
+  const respawnTime = GameState.playerRespawnTimes[username];
+  if (respawnTime && Date.now() < respawnTime) {
+    const remainingMin = Math.ceil((respawnTime - Date.now()) / 60000);
+    console.log('[COOLDOWN] ' + username + ' must wait ' + remainingMin + ' more minutes');
+    showFloatingText(GameState.width / 2, 200, username + ': ' + remainingMin + 'min cooldown', '#f80');
+    return null;
+  }
+  
+  // Clear cooldown and spawn new hero
+  delete GameState.playerRespawnTimes[username];
   const fighter = new Fighter(username, false, false);
   GameState.fighters.push(fighter);
+  showFloatingText(fighter.x, fighter.y - 50, username + ' ENTERS BATTLE!', '#0ff');
   return fighter;
 }
 
@@ -1376,6 +1414,10 @@ function updateKOTHZone() {
       if (d <= CONFIG.KOTH_ZONE_RADIUS) {
         const pdata = getPlayerData(f.username);
         pdata.points += CONFIG.KOTH_POINTS_PER_SEC * 0.5;
+        // Show points notification occasionally
+        if (Math.random() < 0.01) {
+          showFloatingText(f.x, f.y - 60, '+POINTS', '#ff0');
+        }
       }
     }
   }
@@ -1478,23 +1520,23 @@ function initializeTestMode() {
   
   console.log('[TEST] Initializing combat test...');
   
-  // Spawn Hero 1 on LEFT side - FIRE BUILD
+  // Spawn Hero 1 on LEFT side - FIRE BUILD (seed 0)
   GameState.playerData['HeroLeft'] = { username: 'HeroLeft', archetypeIndex: 0, level: 1, xp: 0, kills: 0, deaths: 0, points: 0 };
   testHero1 = new Fighter('HeroLeft', false, false);
   testHero1.x = 150; // Left side
   testHero1.y = GameState.height / 2;
-  testHero1.ammoCount = 10; // Give them ammo to fight
+  // Already has ammo from archetype seed!
   GameState.fighters.push(testHero1);
-  console.log('[TEST] Spawned HeroLeft (Fire) at left side');
+  console.log('[TEST] HeroLeft: HP=' + testHero1.hp + ', ATK=' + testHero1.attack + ', AMMO=' + testHero1.ammoCount + ', STATUS=' + testHero1.statusType);
   
-  // Spawn Hero 2 on RIGHT side - ICE BUILD
-  GameState.playerData['HeroRight'] = { username: 'HeroRight', archetypeIndex: 10, level: 1, xp: 0, kills: 0, deaths: 0, points: 0 };
+  // Spawn Hero 2 on RIGHT side - POISON BUILD (seed 20) - FAST!
+  GameState.playerData['HeroRight'] = { username: 'HeroRight', archetypeIndex: 20, level: 1, xp: 0, kills: 0, deaths: 0, points: 0 };
   testHero2 = new Fighter('HeroRight', false, false);
   testHero2.x = GameState.width - 150; // Right side
   testHero2.y = GameState.height / 2;
-  testHero2.ammoCount = 10; // Give them ammo to fight
+  // Already has ammo from archetype seed!
   GameState.fighters.push(testHero2);
-  console.log('[TEST] Spawned HeroRight (Ice) at right side');
+  console.log('[TEST] HeroRight: HP=' + testHero2.hp + ', ATK=' + testHero2.attack + ', AMMO=' + testHero2.ammoCount + ', STATUS=' + testHero2.statusType);
   
   // Spawn some test ammo
   for (let i = 0; i < 5; i++) {
