@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCII Battle Royale</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: transparent;
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+}
+
+#game-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
+/* HUD */
+#stats-panel {
+  position: fixed; top: 20px; left: 20px;
+  background: rgba(0,0,0,0.85);
+  padding: 12px;
+  border: 2px solid #333;
+  font-size: 11px;
+  z-index: 1000;
+  min-width: 220px;
+  color: #888;
+  border-radius: 4px;
+}
+#stats-panel h3 {
+  color: #0f0;
+  margin-bottom: 8px;
+  font-size: 13px;
+  text-shadow: 0 0 5px #0f0;
+}
+.stat-row { margin: 4px 0; display: flex; justify-content: space-between; }
+.stat-value { color: #0ff; font-weight: bold; }
+
+#leaderboard {
+  position: fixed; bottom: 20px; right: 20px;
+  background: rgba(0,0,0,0.85);
+  padding: 12px;
+  border: 2px solid #333;
+  font-size: 11px;
+  z-index: 1000;
+  min-width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+#leaderboard h3 {
+  color: #ff0;
+  margin-bottom: 8px;
+  font-size: 13px;
+  text-shadow: 0 0 5px #ff0;
+}
+.leader-entry { color: #888; margin: 3px 0; display: flex; justify-content: space-between; }
+.leader-name { color: #0ff; }
+.leader-score { color: #f80; }
+
+#chat-retainer {
+  position: fixed; bottom: 20px; left: 20px;
+  background: rgba(0,0,0,0.85);
+  padding: 10px;
+  border: 2px solid #333;
+  max-width: 350px;
+  z-index: 999;
+  max-height: 120px;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+#chat-retainer h4 {
+  color: #0f0;
+  margin-bottom: 5px;
+  font-size: 11px;
+  text-shadow: 0 0 5px #0f0;
+}
+.chat-line { color: #888; margin: 3px 0; font-size: 10px; word-wrap: break-word; }
+
+/* Entities & FX */
+.entity {
+  position: absolute;
+  font-size: 14px;
+  white-space: pre;
+  pointer-events: none;
+  line-height: 1.2;
+  font-weight: bold;
+  text-shadow: 0 0 3px currentColor;
+  transition: none;
+}
+.projectile {
+  position: absolute;
+  font-size: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+  font-weight: bold;
+  animation: pulse 0.6s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
+}
+.ammo-particle {
+  position: absolute;
+  font-size: 11px;
+  color: #fa0;
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 0 5px #fa0;
+  animation: float 3s ease-in-out infinite;
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+.damage-number {
+  position: absolute;
+  font-size: 13px;
+  font-weight: bold;
+  animation: fade-up 1.6s ease-out forwards;
+  pointer-events: none;
+  text-shadow: 0 0 5px currentColor;
+}
+@keyframes fade-up {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-24px); opacity: 0; }
+}
+.heal-number { color: #0f0; }
+.fire-number { color: #f40; }
+.ice-number { color: #0cf; }
+.poison-number { color: #8f0; }
+
+/* Connection */
+#connection-status {
+  position: fixed;
+  top: 20px; right: 20px;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.85);
+  border: 2px solid #333;
+  font-size: 11px;
+  z-index: 1000;
+  color: #888;
+  border-radius: 4px;
+}
+#connection-status.connected {
+  color: #0f0;
+  text-shadow: 0 0 5px #0f0;
+}
+
+/* KOTH zone */
+.koth-zone {
+  position: absolute;
+  border: 2px dashed #ff0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.25;
+  animation: zone-pulse 3s ease-in-out infinite;
+}
+@keyframes zone-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.03); }
+}
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+
+<div id="stats-panel">
+  <h3>> BATTLE STATS</h3>
+  <div class="stat-row"><span>Players:</span><span class="stat-value" id="player-count">0</span></div>
+  <div class="stat-row"><span>AI Enemies:</span><span class="stat-value" id="ai-count">0</span></div>
+  <div class="stat-row"><span>Active:</span><span class="stat-value" id="total-fighters">0</span></div>
+  <div class="stat-row"><span>Ammo:</span><span class="stat-value" id="ammo-count">0</span></div>
+  <div class="stat-row"><span>Defeated:</span><span class="stat-value" id="kill-count">0</span></div>
+</div>
+
+<div id="leaderboard"><h3>* TOP FIGHTERS</h3></div>
+<div id="connection-status" class="disconnected">Connecting ...</div>
+
+<div id="chat-retainer">
+  <h4>. CHAT</h4>
+</div>
+
+<script>
+// =====================
+// CONFIGURATION
+// =====================
+const CONFIG = {
+  SOCKET_TOKEN: "", // inject via server/env in production
+  ACCESS_TOKEN: "",
+  TEST_MODE: true,
+
+  KNOCKBACK_STRENGTH: 22,
+  AMMO_LIFETIME: 25000,
+  HEALTH_DECAY_RATE: 0.1,
+  INACTIVE_THRESHOLD: 30000,
+  AI_SPAWN_INTERVAL: 20000,
+  KOTH_ZONE_RADIUS: 140,
+  KOTH_POINTS_PER_SEC: 2,
+  XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
+};
+
+// =====================
+// ARCHETYPES & WEAPONS
+// =====================
+const ARCHETYPES = {
+  warrior: { name: "Warrior", ascii: "X", color: null, hp: 80, atk: 8, spd: 30, weapon: "sword", statusChance: { fire: 0.15 } },
+  mage:    { name: "Mage",    ascii: "*", color: null, hp: 50, atk: 12, spd: 25, weapon: "staff", statusChance: { ice: 0.2 } },
+  rogue:   { name: "Rogue",   ascii: ">", color: null, hp: 60, atk: 10, spd: 40, weapon: "dagger", statusChance: { poison: 0.25 } },
+  tank:    { name: "Tank",    ascii: "#", color: null, hp: 120, atk: 5, spd: 20, weapon: "hammer", statusChance: {} },
+  ranger:  { name: "Ranger",  ascii: "1", color: null, hp: 65, atk: 9, spd: 35, weapon: "bow", statusChance: {} },
+  healer:  { name: "Healer",  ascii: "+", color: null, hp: 55, atk: 3, spd: 28, weapon: "wand", statusChance: {} },
+};
+
+const WEAPONS = {
+  sword:  { projectile: "-",  damage: 8,  speed: 110, color: "#f88" },
+  staff:  { projectile: "+",  damage: 12, speed: 95,  color: "#88f" },
+  dagger: { projectile: ">",  damage: 9,  speed: 130, color: "#8f8" },
+  hammer: { projectile: ".",  damage: 7,  speed: 80,  color: "#aaa" },
+  bow:    { projectile: "->", damage: 10, speed: 120, color: "#af8" },
+  wand:   { projectile: "+",  damage: -10, speed: 110, color: "#0f8" }, // Zephyr heals
+};
+
+// =====================
+// GAME STATE
+// =====================
+const GameState = {
+  fighters: [],
+  projectiles: [],
+  ammo: [],
+  container: document.getElementById('game-container'),
+  width: window.innerWidth,
+  height: window.innerHeight,
+  playerData: {},
+  chatMessages: [],
+  boss: null,
+  kothZone: null,
+  lastAISpawn: 0,
+  lastKOTHMove: 0,
+  stats: { kills: 0 },
+  lastUpdate: performance.now(),
+};
+
+// =====================
+// UTILS
+// =====================
+function hashUsername(username) {
+  let hash = 0;
+  for (let i = 0; i < username.length; i++) {
+    hash = ((hash << 5) - hash) + username.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+function getArchetypeForUser(username) {
+  const seed = hashUsername(username);
+  const archetypes = Object.keys(ARCHETYPES);
+  return archetypes[seed % archetypes.length];
+}
+function distance(x1, y1, x2, y2) {
+  return Math.sqrt((x2-x1) ** 2 + (y2-y1) ** 2);
+}
+function showFloatingText(x, y, text, color) {
+  const el = document.createElement('div');
+  el.className = 'damage-number';
+  el.textContent = text;
+  el.style.color = color;
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  GameState.container.appendChild(el);
+  setTimeout(() => el.remove(), 1600);
+}
+function getColorForUser(username) {
+  const hue = hashUsername(username) % 360;
+  return `hsl(${hue}, 80%, 60%)`;
+}
+function getPlayerData(username) {
+  if (!GameState.playerData[username]) {
+    GameState.playerData[username] = {
+      username,
+      archetype: username === "Zephyr" ? "healer" : getArchetypeForUser(username),
+      level: 1,
+      xp: 0,
+      kills: 0,
+      deaths: 0,
+      points: 0,  // PvP/KOTH points bucket
+    };
+  }
+  return GameState.playerData[username];
+}
+function isZephyr(username) { return username === "Zephyr"; }
+
+// =====================
+// AMMO
+// =====================
+class Ammo {
+  constructor(word, x, y) {
+    this.word = word;
+    this.x = (typeof x === 'number' ? x : Math.random() * GameState.width);
+    this.y = (typeof y === 'number' ? y : Math.random() * GameState.height);
+    this.collected = false;
+    this.spawnTime = Date.now();
+    this.vx = (Math.random() - 0.5) * 1.6;
+    this.vy = (Math.random() - 0.5) * 1.6;
+    this.createElement();
+  }
+  createElement() {
+    this.element = document.createElement('div');
+    this.element.className = 'ammo-particle';
+    this.element.textContent = this.word;
+    this.element.style.left = `${this.x}px`;
+    this.element.style.top = `${this.y}px`;
+    GameState.container.appendChild(this.element);
+  }
+  update(dt) {
+    if (this.collected) return;
+    if (Date.now() - this.spawnTime > CONFIG.AMMO_LIFETIME) { this.destroy(); return; }
+    this.x += this.vx * 24 * dt;
+    this.y += this.vy * 24 * dt;
+    if (this.x < 0 || this.x > GameState.width) this.vx *= -1;
+    if (this.y < 0 || this.y > GameState.height) this.vy *= -1;
+    this.element.style.left = `${this.x}px`;
+    this.element.style.top = `${this.y}px`;
+    for (const f of GameState.fighters) {
+      if (!f.alive || f.isEnemy) continue;
+      if (distance(f.x, f.y, this.x, this.y) < 35) {
+        f.collectAmmo(this.word);
+        this.destroy();
+        break;
+      }
+    }
+  }
+  destroy() {
+    if (this.element) this.element.remove();
+    const idx = GameState.ammo.indexOf(this);
+    if (idx > -1) GameState.ammo.splice(idx, 1);
+  }
+}
+
+// =====================
+// PROJECTILES
+// =====================
+class Projectile {
+  constructor(owner, target) {
+    this.owner = owner;
+    this.x = owner.x;
+    this.y = owner.y;
+    const weapon = WEAPONS[owner.weaponType];
+    this.damage = weapon.damage;
+    this.speed = weapon.speed;
+    this.color = weapon.color;
+    this.symbol = weapon.projectile;
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    this.vx = (dx / dist) * this.speed;
+    this.vy = (dy / dist) * this.speed;
+    this.lifetime = 0;
+    this.maxLifetime = 4.5;
+    this.createElement();
+  }
+  createElement() {
+    this.element = document.createElement('div');
+    this.element.className = 'projectile';
+    this.element.textContent = this.symbol;
+    this.element.style.color = this.color;
+    this.element.style.left = `${this.x}px`;
+    this.element.style.top = `${this.y}px`;
+    GameState.container.appendChild(this.element);
+  }
+  update(dt) {
+    this.lifetime += dt;
+    if (this.lifetime > this.maxLifetime) { this.destroy(); return; }
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.element.style.left = `${this.x}px`;
+    this.element.style.top = `${this.y}px`;
+
+    for (const f of GameState.fighters) {
+      if (!f.alive || f === this.owner) continue;
+
+      // Allied enemies: they don't hurt each other; they hurt all players (including Zephyr).
+      // PvP enabled: players can hurt players.
+      const ownerIsEnemy = this.owner.isEnemy;
+      const targetIsEnemy = f.isEnemy;
+      const friendlyEnemyFire = ownerIsEnemy && targetIsEnemy;
+      if (friendlyEnemyFire) continue;
+
+      if (distance(f.x, f.y, this.x, this.y) < 25) {
+        f.takeDamage(this.damage, this.owner);
+        const dx = f.x - this.owner.x;
+        const dy = f.y - this.owner.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        f.vx += (dx / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
+        f.vy += (dy / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
+        this.destroy();
+        break;
+      }
+    }
+  }
+  destroy() {
+    if (this.element) this.element.remove();
+    const idx = GameState.projectiles.indexOf(this);
+    if (idx > -1) GameState.projectiles.splice(idx, 1);
+  }
+}
+
+// =====================
+// FIGHTERS
+// =====================
+class Fighter {
+  constructor(username, isEnemy = false, isBoss = false) {
+    this.username = username;
+    this.isEnemy = isEnemy;
+    this.isBoss = isBoss;
+    this.alive = true;
+
+    if (isEnemy || isBoss) {
+      this.archetype = isBoss ? 'warrior' : Object.keys(ARCHETYPES)[Math.floor(Math.random() * 6)];
+      this.level = isBoss ? 10 : Math.floor(Math.random() * 3) + 1;
+    } else {
+      const data = getPlayerData(username);
+      this.archetype = data.archetype;
+      this.level = data.level;
+      this.xp = data.xp;
+    }
+
+    const arch = ARCHETYPES[this.archetype];
+    const levelMult = 1 + (this.level - 1) * 0.15;
+    this.maxHp = Math.round(arch.hp * levelMult * (isBoss ? 5 : 1));
+    this.hp = this.maxHp;
+    this.attack = Math.round(arch.atk * levelMult * (isBoss ? 3 : 1));
+    this.speed = arch.spd;
+
+    this.color = isZephyr(username) ? "#0ff" : getColorForUser(username);
+    this.ascii = isZephyr(username) ? "@" : arch.ascii;
+    this.weaponType = isZephyr(username) ? "wand" : arch.weapon;
+
+    this.ammoCount = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.lastAttack = 0;
+    this.attackCooldown = isZephyr(username) ? 2200 : 2500; // Zephyr heals more responsively
+    this.statusEffects = [];
+
+    this.anchorX = GameState.width / 2;  // for Zephyr's home anchor
+    this.anchorY = GameState.height - 80;
+
+    this.spawnPosition();
+    this.createElement();
+  }
+
+  spawnPosition() {
+    if (this.isEnemy) {
+      this.x = Math.random() * GameState.width;
+      this.y = -50;
+    } else if (isZephyr(this.username)) {
+      this.x = this.anchorX;
+      this.y = this.anchorY;
+    } else {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 180 + Math.random() * 160;
+      this.x = GameState.width / 2 + Math.cos(angle) * distance;
+      this.y = GameState.height / 2 + Math.sin(angle) * distance;
+    }
+    this.x = Math.max(50, Math.min(GameState.width - 50, this.x));
+    this.y = Math.max(50, Math.min(GameState.height - 50, this.y));
+  }
+
+  createElement() {
+    this.element = document.createElement('div');
+    this.element.className = 'entity';
+    this.element.style.color = this.color;
+    this.element.style.left = `${this.x}px`;
+    this.element.style.top = `${this.y}px`;
+    if (this.isBoss) this.element.style.fontSize = '24px';
+    this.updateDisplay();
+    GameState.container.appendChild(this.element);
+  }
+
+  updateDisplay() {
+    const hpPct = Math.max(0, this.hp / this.maxHp);
+    const bars = Math.ceil(hpPct * 5);
+    const hpBar = '_'.repeat(bars) + '"'.repeat(5 - bars);
+
+    const nameDisplay = this.username.substring(0, 10);
+    const ammoDisplay = this.isEnemy ? "" : ` [${this.ammoCount}]`;
+
+    // Zephyr should show as Support, no points earned
+    const line4 = isZephyr(this.username)
+      ? `${hpBar} SUPPORT${ammoDisplay}`
+      : `${hpBar}${ammoDisplay}`;
+
+    this.element.textContent = `${this.ascii}
+${nameDisplay}
+L${this.level}
+${line4}`;
+  }
+
+  collectAmmo(word) {
+    this.ammoCount++;
+    showFloatingText(this.x, this.y - 30, `+${word}`, '#fa0');
+  }
+
+  update(dt) {
+    if (!this.alive) return;
+
+    for (const effect of this.statusEffects) {
+      if (effect === 'fire') this.hp -= CONFIG.HEALTH_DECAY_RATE * dt;
+      if (effect === 'poison') this.hp -= (CONFIG.HEALTH_DECAY_RATE * 0.6) * dt;
+    }
+
+    if (this.isEnemy) this.updateEnemyAI(dt);
+    else if (isZephyr(this.username)) this.updateZephyrAI(dt);
+    else this.updatePlayerAI(dt);
+
+    this.vx *= 0.98;
+    this.vy *= 0.98;
+
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
+    this.y = Math.max(30, Math.min(GameState.height - 30, this.y));
+
+    this.element.style.left = `${this.x}px`;
+    this.element.style.top = `${this.y}px`;
+    this.updateDisplay();
+  }
+
+  updatePlayerAI(dt) {
+    // Players: collect ammo, fight enemies, and PvP.
+    let target = null;
+    let minDist = Infinity;
+
+    if (this.ammoCount < 2) {
+      for (const ammo of GameState.ammo) {
+        if (ammo.collected) continue;
+        const dist = distance(this.x, this.y, ammo.x, ammo.y);
+        if (dist < 220 && dist < minDist) {
+          minDist = dist;
+          target = { x: ammo.x, y: ammo.y, isAmmo: true };
+        }
+      }
+    }
+
+    if (!target && this.ammoCount > 0) {
+      // Prefer nearest enemy; if none nearby, engage nearest other player (PvP)
+      for (const f of GameState.fighters) {
+        if (!f.alive || f === this) continue;
+        const dist = distance(this.x, this.y, f.x, f.y);
+        const isPreferred = f.isEnemy ? 1 : (!isZephyr(f.username) ? 2 : 3); // enemies first, then players, avoid Zephyr last
+        const score = dist * isPreferred;
+        if (score < minDist) { minDist = score; target = f; }
+      }
+    }
+
+    this.moveAndAttack(target);
+  }
+
+  updateZephyrAI(dt) {
+    // Zephyr: bottom-center anchor; breaks away to heal injured players; avoids earning points
+    let target = null;
+    let best = Infinity;
+
+    // Seek lowest HP non-enemy, excluding self
+    for (const f of GameState.fighters) {
+      if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
+      const hpPct = f.hp / f.maxHp;
+      const dist = distance(this.x, this.y, f.x, f.y);
+      const score = hpPct * 2 + dist / 600; // prioritize injured and closer
+      if (score < best) { best = score; target = f; }
+    }
+
+    // If no one needs help, drift back towards anchor
+    if (!target) {
+      const dx = this.anchorX - this.x;
+      const dy = this.anchorY - this.y;
+      const d = Math.sqrt(dx*dx + dy*dy) || 1;
+      if (d > 30) { this.vx = (dx / d) * (this.speed * 0.6); this.vy = (dy / d) * (this.speed * 0.6); }
+      else { this.vx *= 0.9; this.vy *= 0.9; }
+      return;
+    }
+
+    // Move near the target; if close, pulse heals
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+
+    if (dist > 140) {
+      this.vx = (dx / dist) * (this.speed * 0.85);
+      this.vy = (dy / dist) * (this.speed * 0.85);
+    } else {
+      this.vx *= 0.8; this.vy *= 0.8;
+      const now = performance.now();
+      if (now - this.lastAttack > this.attackCooldown) {
+        // Zephyr uses wand heal; no ammo required; doesn't earn points
+        const proj = new Projectile(this, target);
+        GameState.projectiles.push(proj);
+        this.lastAttack = now;
+      }
+    }
+  }
+
+  updateEnemyAI(dt) {
+    // Allied enemies: descend and target any non-enemy (players + Zephyr)
+    this.y += 18 * dt;
+
+    if (this.y > GameState.height + 50) { this.destroy(); return; }
+
+    let target = null;
+    let minDist = 220;
+    for (const f of GameState.fighters) {
+      if (!f.alive || f.isEnemy) continue;
+      const dist = distance(this.x, this.y, f.x, f.y);
+      if (dist < minDist) { minDist = dist; target = f; }
+    }
+
+    if (target) {
+      const dx = target.x - this.x;
+      const dist = Math.sqrt(dx*dx + (target.y - this.y) ** 2) || 1;
+      this.vx = (dx / dist) * this.speed * 0.45;
+      const now = performance.now();
+      if (now - this.lastAttack > this.attackCooldown && dist < 160) {
+        this.attackTarget(target);
+        this.lastAttack = now;
+      }
+    }
+  }
+
+  moveAndAttack(target) {
+    if (target) {
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      if (target.isAmmo || dist > 160) {
+        this.vx = (dx / dist) * this.speed;
+        this.vy = (dy / dist) * this.speed;
+      } else {
+        this.vx *= 0.85; this.vy *= 0.85;
+        const now = performance.now();
+        if (now - this.lastAttack > this.attackCooldown && this.ammoCount > 0) {
+          this.attackTarget(target);
+          this.lastAttack = now;
+        }
+      }
+    } else {
+      this.vx *= 0.9; this.vy *= 0.9;
+    }
+  }
+
+  attackTarget(target) {
+    if (!target || !target.alive) return;
+    // Players spend ammo; Zephyr doesn't use ammo to heal
+    if (!this.isEnemy && !isZephyr(this.username) && this.ammoCount > 0) this.ammoCount--;
+    const proj = new Projectile(this, target);
+    GameState.projectiles.push(proj);
+  }
+
+  takeDamage(amount, attacker) {
+    this.hp -= amount;
+    const isHeal = amount < 0;
+    const dmgColor = isHeal ? '#0f8' : '#f66';
+    showFloatingText(this.x, this.y - 20, `${isHeal ? '+' : '-'}${Math.abs(Math.round(amount))}`, dmgColor);
+
+    // Points: attacker earns on damaging/finishing only if attacker is a PLAYER and NOT Zephyr.
+    // Finisher bonus on death; KOTH handled separately.
+    if (!isHeal && attacker && !attacker.isEnemy && !isZephyr(attacker.username)) {
+      const pdata = getPlayerData(attacker.username);
+      pdata.points += Math.min(Math.abs(amount), 5); // small damage drip points
+    }
+
+    if (this.hp <= 0) this.die(attacker);
+  }
+
+  die(killer) {
+    this.alive = false;
+    this.element.style.opacity = '0.3';
+    GameState.stats.kills++;
+    if (killer && !killer.isEnemy && !isZephyr(killer.username)) {
+      const data = getPlayerData(killer.username);
+      data.kills++;
+      data.xp += 50;
+      data.points += 50; // kill bonus
+      if (data.xp >= CONFIG.XP_CURVE[data.level] && data.level < 10) {
+        data.level++;
+        showFloatingText(killer.x, killer.y - 40, 'LEVEL UP!', '#ff0');
+      }
+    }
+    setTimeout(() => { this.destroy(); }, 1000);
+  }
+
+  destroy() {
+    if (this.element) this.element.remove();
+    const idx = GameState.fighters.indexOf(this);
+    if (idx > -1) GameState.fighters.splice(idx, 1);
+  }
+}
+
+// =====================
+// SPAWNERS
+// =====================
+function spawnPlayer(username) {
+  const existing = GameState.fighters.find(f => f.username === username && f.alive && !f.isEnemy);
+  if (existing) {
+    existing.hp = Math.min(existing.maxHp, existing.hp + 16);
+    showFloatingText(existing.x, existing.y - 30, '+16 HP', '#0f0');
+    return existing;
+  }
+  const fighter = new Fighter(username, false, false);
+  GameState.fighters.push(fighter);
+  return fighter;
+}
+
+function spawnAIEnemy() {
+  const fighter = new Fighter('AI_' + Date.now(), true, false);
+  GameState.fighters.push(fighter);
+  return fighter;
+}
+
+function spawnAmmo(username, message) {
+  const words = message.trim().split(/\s+/).filter(w => w.length > 0);
+  for (const word of words) {
+    if (word.length > 15) continue;
+    const ammo = new Ammo(word);
+    GameState.ammo.push(ammo);
+  }
+}
+
+function addChatLine(username, message) {
+  GameState.chatMessages.push({ username, message, time: Date.now() });
+  const retainer = document.getElementById('chat-retainer');
+  const line = document.createElement('div');
+  line.className = 'chat-line';
+  line.textContent = `${username}: ${message.substring(0, 50)}`;
+  retainer.appendChild(line);
+  while (retainer.children.length > 4) retainer.children[1].remove();
+  retainer.scrollTop = retainer.scrollHeight;
+}
+
+// =====================
+// STREAMLABS (optional)
+// =====================
+let socket = null;
+let reconnectAttempts = 0;
+function connectStreamlabs() {
+  if (!CONFIG.SOCKET_TOKEN || CONFIG.SOCKET_TOKEN.length < 20) {
+    const cs = document.getElementById('connection-status');
+    cs.textContent = '> Invalid Token';
+    cs.className = 'disconnected';
+    return;
+  }
+  try {
+    const eioVersion = reconnectAttempts % 2 === 0 ? '4' : '3';
+    const url = `wss://sockets.streamlabs.com/socket.io/?token=${CONFIG.SOCKET_TOKEN}&transport=websocket&EIO=${eioVersion}`;
+    socket = new WebSocket(url);
+
+    socket.onopen = () => {
+      reconnectAttempts = 0;
+      const cs = document.getElementById('connection-status');
+      cs.textContent = 'Connected';
+      cs.className = 'connected';
+    };
+    socket.onmessage = (event) => {
+      const msg = event.data;
+      if (msg.startsWith('2')) socket.send('3'); // Pong
+      else if (msg.startsWith('42')) {
+        try {
+          const jsonStr = msg.substring(2);
+          const data = JSON.parse(jsonStr);
+          handleStreamlabsEvent(data);
+        } catch (e) {}
+      }
+    };
+    socket.onerror = () => {
+      const cs = document.getElementById('connection-status');
+      cs.textContent = '> Error';
+      cs.className = 'disconnected';
+    };
+    socket.onclose = () => {
+      const cs = document.getElementById('connection-status');
+      cs.textContent = 'Disconnected';
+      cs.className = 'disconnected';
+      reconnectAttempts++;
+      if (reconnectAttempts < 5) {
+        const delay = Math.min(5000 * reconnectAttempts, 30000);
+        setTimeout(connectStreamlabs, delay);
+      } else {
+        cs.textContent = 'Failed';
+      }
+    };
+  } catch (e) {
+    const cs = document.getElementById('connection-status');
+    cs.textContent = '> Failed';
+    cs.className = 'disconnected';
+  }
+}
+
+function handleStreamlabsEvent(data) {
+  if (!Array.isArray(data) || data.length < 2) return;
+  const eventType = data[0];
+  const eventData = data[1];
+  if (!eventData) return;
+
+  if (eventType === 'event') {
+    const messages = eventData.message || [];
+    for (const msg of messages) {
+      const username = msg.name || msg.from || 'Viewer';
+      const text = msg.message || "";
+      spawnPlayer(username);
+      if (text && text.length > 0) {
+        spawnAmmo(username, text);
+        addChatLine(username, text);
+      }
+    }
+  }
+
+  if (eventType === 'donation' || eventType === 'tip') {
+    spawnBoss();
+  }
+}
+
+// =====================
+// BOSS & KOTH
+// =====================
+function spawnBoss() {
+  if (GameState.boss && GameState.boss.alive) return;
+  const boss = new Fighter('BOSS', true, true);
+  boss.x = GameState.width / 2;
+  boss.y = GameState.height / 2;
+  boss.color = '#f00';
+  boss.ascii = '@';
+  GameState.fighters.push(boss);
+  GameState.boss = boss;
+  showFloatingText(GameState.width / 2, 100, 'A BOSS SPAWNED!', '#f00');
+}
+
+function updateKOTHZone() {
+  const now = performance.now();
+  if (!GameState.kothZone || now - GameState.lastKOTHMove > 25000) {
+    if (GameState.kothZone && GameState.kothZone.element) {
+      GameState.kothZone.element.remove();
+    }
+    const x = 220 + Math.random() * (GameState.width - 440);
+    const y = 220 + Math.random() * (GameState.height - 440);
+    GameState.kothZone = { x, y };
+    GameState.lastKOTHMove = now;
+
+    const zoneEl = document.createElement('div');
+    zoneEl.className = 'koth-zone';
+    zoneEl.style.left = `${x - CONFIG.KOTH_ZONE_RADIUS}px`;
+    zoneEl.style.top = `${y - CONFIG.KOTH_ZONE_RADIUS}px`;
+    zoneEl.style.width = `${CONFIG.KOTH_ZONE_RADIUS * 2}px`;
+    zoneEl.style.height = `${CONFIG.KOTH_ZONE_RADIUS * 2}px`;
+    GameState.container.appendChild(zoneEl);
+    GameState.kothZone.element = zoneEl;
+  }
+
+  // Award KOTH points only to players (exclude Zephyr).
+  if (GameState.kothZone) {
+    for (const f of GameState.fighters) {
+      if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
+      const d = distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y);
+      if (d <= CONFIG.KOTH_ZONE_RADIUS) {
+        const pdata = getPlayerData(f.username);
+        // points per second scaled by dt in loop; here we tick coarse in stats update, so drip modestly
+        pdata.points += CONFIG.KOTH_POINTS_PER_SEC * 0.5; // ~every loop cycle it adds small amount
+      }
+    }
+  }
+}
+
+// =====================
+// LEADERBOARD & STATS
+// =====================
+function updateLeaderboard() {
+  const leaderboard = document.getElementById('leaderboard');
+  const players = Object.values(GameState.playerData)
+    .filter(p => !isZephyr(p.username)) // exclude Zephyr from scoring
+    .sort((a, b) => Math.floor(b.points) - Math.floor(a.points))
+    .slice(0, 10);
+
+  let html = '<h3>* TOP FIGHTERS</h3>';
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    html += `
+      <div class="leader-entry">
+        <span class="leader-name">${i + 1}. ${p.username.substring(0, 12)}</span>
+        <span class="leader-score">Pts ${Math.floor(p.points)} | L${p.level}</span>
+      </div>
+    `;
+  }
+  if (players.length === 0) {
+    html += '<div class="leader-entry" style="color: #666;">No players yet ...</div>';
+  }
+  leaderboard.innerHTML = html;
+}
+
+function updateStats() {
+  const players = GameState.fighters.filter(f => !f.isEnemy && f.alive).length;
+  const enemies = GameState.fighters.filter(f => f.isEnemy && f.alive).length;
+  const total = GameState.fighters.filter(f => f.alive).length;
+  const ammo = GameState.ammo.filter(a => !a.collected).length;
+
+  document.getElementById('player-count').textContent = players;
+  document.getElementById('ai-count').textContent = enemies;
+  document.getElementById('total-fighters').textContent = total;
+  document.getElementById('ammo-count').textContent = ammo;
+  document.getElementById('kill-count').textContent = GameState.stats.kills;
+}
+
+// =====================
+// GAME LOOP
+// =====================
+function gameLoop() {
+  const now = performance.now();
+  const dt = Math.min((now - GameState.lastUpdate) / 1000, 0.08);
+  GameState.lastUpdate = now;
+
+  for (const fighter of GameState.fighters.slice()) fighter.update(dt);
+  for (const proj of GameState.projectiles.slice()) proj.update(dt);
+  for (const ammo of GameState.ammo.slice()) ammo.update(dt);
+
+  if (now - GameState.lastAISpawn > CONFIG.AI_SPAWN_INTERVAL) {
+    spawnAIEnemy();
+    GameState.lastAISpawn = now;
+  }
+
+  updateKOTHZone();
+  updateStats();
+
+  if (Math.floor(now / 2500) !== Math.floor((now - dt * 1000) / 2500)) updateLeaderboard();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// =====================
+// TEST MODE & INIT
+// =====================
+function spawnTestFighters() {
+  const testNames = ['TestWarrior','TestMage','TestRogue','TestTank','TestRanger','TestHealer'];
+  const name = testNames[Math.floor(Math.random() * testNames.length)] + Math.floor(Math.random() * 100);
+  const f = spawnPlayer(name);
+  const testWords = ['attack','defend','heal','fire','ice','storm'];
+  const message = [];
+  for (let i = 0; i < 2; i++) message.push(testWords[Math.floor(Math.random() * testWords.length)]);
+  spawnAmmo(name, message.join(' '));
+  addChatLine(name, message.join(' '));
+  console.log("[TEST] Spawned:", name, f.color);
+}
+
+// Always spawn Zephyr as persistent anchor
+function spawnZephyr() {
+  const z = new Fighter("Zephyr", false, false);
+  z.x = GameState.width / 2;
+  z.y = GameState.height - 80;     // bottom-center anchor
+  z.color = "#0ff";                // cyan beacon
+  z.ascii = "@";                   // distinct hero glyph
+  z.weaponType = "wand";           // gentle heal pulses
+  z.attackCooldown = 2200;         // faster support cadence
+  GameState.fighters.push(z);
+  GameState.playerData["Zephyr"] = getPlayerData("Zephyr"); // ensures points=0 and excluded
+  return z;
+}
+
+window.addEventListener('resize', () => {
+  GameState.width = window.innerWidth;
+  GameState.height = window.innerHeight;
+});
+
+// Initialize
+spawnZephyr();
+
+if (!CONFIG.TEST_MODE) {
+  connectStreamlabs();
+} else {
+  const cs = document.getElementById('connection-status');
+  cs.textContent = 'TEST MODE';
+  cs.style.color = '#fa0';
+}
+
+gameLoop();
+
+if (CONFIG.TEST_MODE) {
+  setTimeout(() => {
+    spawnTestFighters();
+    setInterval(spawnTestFighters, 20000);
+  }, 2000);
+}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ASCII Battle Royale</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: transparent; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; }
+#game-container { position: relative; width: 100vw; height: 100vh; }
+
+.entity { position: absolute; font-size: 14px; white-space: pre; pointer-events: none; line-height: 1.2; font-weight: bold; text-shadow: 0 0 3px currentColor; }
+.projectile { position: absolute; font-size: 10px; pointer-events: none; white-space: nowrap; font-weight: bold; }
+.ammo-particle { position: absolute; font-size: 11px; color: #fa0; pointer-events: none; white-space: nowrap; text-shadow: 0 0 5px #fa0; }
+.damage-number { position: absolute; font-size: 13px; font-weight: bold; pointer-events: none; text-shadow: 0 0 5px currentColor; }
+
+#leaderboard {
+  position: fixed; bottom: 20px; right: 20px;
+  background: rgba(0,0,0,0.85); padding: 12px; border: 2px solid #333; font-size: 11px;
+  z-index: 1000; min-width: 240px; max-height: 300px; overflow-y: auto; border-radius: 4px;
+}
+#leaderboard h3 { color: #ff0; margin-bottom: 8px; font-size: 13px; text-shadow: 0 0 5px #ff0; }
+.leader-entry { color: #888; margin: 3px 0; display: flex; justify-content: space-between; }
+.leader-name { color: #0ff; }
+.leader-score { color: #f80; }
+
+#stats-panel {
+  position: fixed; top: 20px; left: 20px;
+  background: rgba(0,0,0,0.85); padding: 12px; border: 2px solid #333; font-size: 11px;
+  z-index: 1000; min-width: 220px; color: #888; border-radius: 4px;
+}
+#stats-panel h3 { color: #0f0; margin-bottom: 8px; font-size: 13px; text-shadow: 0 0 5px #0f0; }
+.stat-row { margin: 4px 0; display: flex; justify-content: space-between; }
+.stat-value { color: #0ff; font-weight: bold; }
+
+#connection-status {
+  position: fixed; top: 20px; right: 20px;
+  padding: 8px 12px; background: rgba(0,0,0,0.85); border: 2px solid #333; font-size: 11px;
+  z-index: 1000; color: #888; border-radius: 4px;
+}
+#connection-status.connected { color: #0f0; text-shadow: 0 0 5px #0f0; }
+
+.koth-zone { position: absolute; border: 2px dashed #ff0; border-radius: 50%; pointer-events: none; opacity: 0.25; }
+
+#chat-retainer {
+  position: fixed; bottom: 20px; right: 20px;  /* moved to bottom-right */
+  background: rgba(0,0,0,0.85);
+  padding: 10px; border: 2px solid #333; max-width: 350px; z-index: 999;
+  max-height: 140px; overflow: hidden; border-radius: 4px;
+}
+#chat-retainer pre { color: #0f0; margin-bottom: 5px; font-size: 11px; text-shadow: 0 0 5px #0f0; }
+.chat-line { color: #888; margin: 3px 0; font-size: 11px; white-space: pre; }
+
+#boss-alert {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(0,0,0,0.85); border: 2px solid #f00; color: #f00; padding: 10px;
+  font-size: 16px; white-space: pre; display: none; z-index: 2000;
+}
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+
+<div id="stats-panel">
+  <h3>> BATTLE STATS</h3>
+  <div class="stat-row"><span>Players:</span><span class="stat-value" id="player-count">0</span></div>
+  <div class="stat-row"><span>AI:</span><span class="stat-value" id="ai-count">0</span></div>
+  <div class="stat-row"><span>Active:</span><span class="stat-value" id="total-fighters">0</span></div>
+  <div class="stat-row"><span>Ammo:</span><span class="stat-value" id="ammo-count">0</span></div>
+  <div class="stat-row"><span>Defeated:</span><span class="stat-value" id="kill-count">0</span></div>
+</div>
+
+<div id="leaderboard"><h3>* TOP FIGHTERS</h3></div>
+<div id="connection-status" class="disconnected">Connecting ...</div>
+
+<div id="chat-retainer">
+  <pre>. CHAT</pre>
+</div>
+
+<div id="boss-alert"></div>
+
+<script>
+// =====================
+// CONFIG
+// =====================
+const CONFIG = {
+  SOCKET_TOKEN: "", ACCESS_TOKEN: "", TEST_MODE: true,
+  KNOCKBACK_STRENGTH: 22,
+  AMMO_LIFETIME: 25000,
+  HEALTH_DECAY_RATE: 0.1,
+  AI_SPAWN_INTERVAL: 20000,
+  KOTH_ZONE_RADIUS: 80,          // smaller
+  KOTH_MOVE_INTERVAL: 10000,     // moves more frequently
+  KOTH_POINTS_PER_SEC: 4,        // make KOTH the main scoring
+  XP_CURVE: [0,100,250,450,700,1000,1400,1900,2500,3200],
+  RAGE_ATTACK_BOOST: 1.25,       // speed boost inside KOTH
+};
+
+// =====================
+// DATA
+// =====================
+const ARCHETYPES = {
+  warrior:{ascii:"X",hp:80,atk:8,spd:30,weapon:"sword"},
+  mage:{ascii:"*",hp:50,atk:12,spd:25,weapon:"staff"},
+  rogue:{ascii:">",hp:60,atk:10,spd:40,weapon:"dagger"},
+  tank:{ascii:"#",hp:120,atk:5,spd:20,weapon:"hammer"},
+  ranger:{ascii:"1",hp:65,atk:9,spd:35,weapon:"bow"},
+  healer:{ascii:"+",hp:55,atk:3,spd:28,weapon:"wand"},
+};
+const WEAPONS = {
+  sword:{projectile:"-",damage:8,speed:110,color:"#f88"},
+  staff:{projectile:"+",damage:12,speed:95,color:"#88f"},
+  dagger:{projectile:">",damage:9,speed:130,color:"#8f8"},
+  hammer:{projectile:".",damage:7,speed:80,color:"#aaa"},
+  bow:{projectile:"->",damage:10,speed:120,color:"#af8"},
+  wand:{projectile:"+",damage:-10,speed:110,color:"#0f8"}, // heal
+};
+
+// =====================
+// STATE
+// =====================
+const GameState = {
+  fighters: [], projectiles: [], ammo: [],
+  container: document.getElementById('game-container'),
+  width: window.innerWidth, height: window.innerHeight,
+  playerData: {}, chatMessages: [], boss: null,
+  kothZone: null, kothZoneEl: null, lastKOTHMove: 0,
+  stats: { kills: 0 }, lastUpdate: performance.now(),
+};
+
+// =====================
+// UTILS
+// =====================
+function hashUsername(u){let h=0; for(let i=0;i<u.length;i++){h=((h<<5)-h)+u.charCodeAt(i); h|=0;} return Math.abs(h);}
+function getColorForUser(u){const hue = hashUsername(u)%360; return `hsl(${hue},80%,60%)`;}
+function getArchetypeForUser(u){const keys=Object.keys(ARCHETYPES); return keys[hashUsername(u)%keys.length];}
+function distance(x1,y1,x2,y2){return Math.sqrt((x2-x1)**2 + (y2-y1)**2);}
+function isZephyr(u){return u==="Zephyr";}
+function showFloatingText(x,y,text,color){
+  const el=document.createElement('div'); el.className='damage-number'; el.textContent=text;
+  el.style.color=color; el.style.left=`${x}px`; el.style.top=`${y}px`;
+  GameState.container.appendChild(el); setTimeout(()=>el.remove(),1600);
+}
+function getPlayerData(username){
+  if(!GameState.playerData[username]){
+    GameState.playerData[username]={username,
+      archetype: isZephyr(username)?"healer":getArchetypeForUser(username),
+      level:1,xp:0,kills:0,deaths:0,points:0
+    };
+  }
+  return GameState.playerData[username];
+}
+
+// =====================
+// AMMO
+// =====================
+class Ammo {
+  constructor(word,x,y){
+    this.word=word; this.x=(typeof x==='number'?x:Math.random()*GameState.width);
+    this.y=(typeof y==='number'?y:Math.random()*GameState.height);
+    this.collected=false; this.spawnTime=Date.now();
+    this.el=document.createElement('div'); this.el.className='ammo-particle';
+    this.el.textContent=this.word; this.el.style.left=`${this.x}px`; this.el.style.top=`${this.y}px`;
+    GameState.container.appendChild(this.el);
+  }
+  update(dt){
+    if(this.collected) return;
+    if(Date.now()-this.spawnTime>CONFIG.AMMO_LIFETIME){this.destroy(); return;}
+    for(const f of GameState.fighters){
+      if(!f.alive) continue;
+      if(distance(f.x,f.y,this.x,this.y)<35){ f.collectAmmo(this.word); this.destroy(); break; }
