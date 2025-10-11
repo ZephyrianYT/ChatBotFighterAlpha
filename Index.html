@@ -510,18 +510,15 @@ class Fighter {
 
     // Zephyr should show as Support, no points earned
     const line4 = isZephyr(this.username)
-      ? `${hpBar} SUPPORT${ammoDisplay}`
-      : `${hpBar}${ammoDisplay}`;
+      ? hpBar + ' SUPPORT' + ammoDisplay
+      : hpBar + ammoDisplay;
 
-    this.element.textContent = `${this.ascii}
-${nameDisplay}
-L${this.level}
-${line4}`;
+    this.element.textContent = this.ascii + '\n' + nameDisplay + '\nL' + this.level + '\n' + line4;
   }
 
   collectAmmo(word) {
     this.ammoCount++;
-    showFloatingText(this.x, this.y - 30, `+${word}`, '#fa0');
+    showFloatingText(this.x, this.y - 30, '+' + word, '#fa0');
   }
 
   update(dt) {
@@ -757,7 +754,7 @@ ${line4}`;
     this.hp -= amount;
     const isHeal = amount < 0;
     const dmgColor = isHeal ? '#0f8' : '#f66';
-    showFloatingText(this.x, this.y - 20, `${isHeal ? '+' : '-'}${Math.abs(Math.round(amount))}`, dmgColor);
+    showFloatingText(this.x, this.y - 20, (isHeal ? '+' : '-') + Math.abs(Math.round(amount)), dmgColor);
 
     // Points: attacker earns on damaging/finishing only if attacker is a PLAYER and NOT Zephyr.
     // Finisher bonus on death; KOTH handled separately.
@@ -849,7 +846,7 @@ function addChatLine(username, message) {
   const retainer = document.getElementById('chat-retainer');
   const line = document.createElement('div');
   line.className = 'chat-line';
-  line.textContent = `${username}: ${message.substring(0, 50)}`;
+  line.textContent = username + ': ' + message.substring(0, 50);
   retainer.appendChild(line);
   while (retainer.children.length > 4) retainer.children[1].remove();
   retainer.scrollTop = retainer.scrollHeight;
@@ -928,12 +925,12 @@ function handleStreamlabsEvent(data) {
       
       // ALL ALERTS SUMMON A BOSS!
       if (eventSubType === 'follow') {
-        showEventAlert('🎉 NEW FOLLOWER! 🎉', `${username} just followed the stream!`, '#0ff');
+        showEventAlert('*** NEW FOLLOWER ***', username + ' just followed the stream!', '#0ff');
         spawnBoss();
         spawnPlayer(username);
         spawnAmmo(username, 'WELCOME FOLLOW THANKS AWESOME', true); // Edge spawn
       } else if (eventSubType === 'subscription' || eventSubType === 'resub') {
-        showEventAlert('⭐ SUBSCRIBER! ⭐', `${username} subscribed to the channel!`, '#f0f');
+        showEventAlert('*** SUBSCRIBER ***', username + ' subscribed to the channel!', '#f0f');
         spawnBoss();
         spawnPlayer(username);
         spawnAmmo(username, 'SUB HYPE LEGENDARY EPIC AMAZING THANKS', true);
@@ -943,7 +940,7 @@ function handleStreamlabsEvent(data) {
         spawnAIEnemy();
       } else if (eventSubType === 'bits' || eventSubType === 'cheer') {
         const amount = msg.amount || 0;
-        showEventAlert('💎 BITS CHEERED! 💎', `${username} cheered ${amount} bits!`, '#ff0');
+        showEventAlert('*** BITS CHEERED ***', username + ' cheered ' + amount + ' bits!', '#ff0');
         spawnBoss();
         spawnPlayer(username);
         spawnAmmo(username, 'BITS ENERGY BOOST POWER HYPE', true);
@@ -963,7 +960,7 @@ function handleStreamlabsEvent(data) {
   if (eventType === 'donation' || eventType === 'tip') {
     const amount = eventData.amount || 0;
     const username = eventData.name || eventData.from || 'Anonymous';
-    showEventAlert('💰 DONATION! 💰', `${username} donated $${amount}! BOSS INCOMING!`, '#0f0');
+    showEventAlert('*** DONATION ***', username + ' donated $' + amount + '! BOSS INCOMING!', '#0f0');
     spawnBoss();
     spawnBoss(); // Double boss for donations!
     spawnPlayer(username);
@@ -998,14 +995,23 @@ function showEventAlert(title, message, color) {
 // =====================
 function spawnBoss() {
   if (GameState.boss && GameState.boss.alive) return;
-  const boss = new Fighter('BOSS', true, true);
-  boss.x = GameState.width / 2;
-  boss.y = GameState.height / 2;
+  const boss = new Fighter('BOSS_' + Date.now(), true, true);
+  
+  // Spawn boss at edge, heading toward KOTH
+  const side = Math.floor(Math.random() * 4);
+  if (side === 0) { boss.x = GameState.width / 2; boss.y = -30; }
+  else if (side === 1) { boss.x = GameState.width / 2; boss.y = GameState.height + 30; }
+  else if (side === 2) { boss.x = -30; boss.y = GameState.height / 2; }
+  else { boss.x = GameState.width + 30; boss.y = GameState.height / 2; }
+  
   boss.color = '#f00';
   boss.ascii = '@';
   GameState.fighters.push(boss);
   GameState.boss = boss;
-  showFloatingText(GameState.width / 2, 100, 'A BOSS SPAWNED!', '#f00');
+  
+  // Show dramatic entrance text
+  const enterX = Math.random() * (GameState.width - 400) + 200;
+  showFloatingText(enterX, 100, '>>> BOSS INCOMING <<<', '#f00');
 }
 
 function updateKOTHZone() {
@@ -1053,20 +1059,36 @@ function updateLeaderboard() {
     .sort((a, b) => Math.floor(b.points) - Math.floor(a.points))
     .slice(0, 10);
 
-  let html = '<h3>* TOP FIGHTERS</h3>';
-  for (let i = 0; i < players.length; i++) {
-    const p = players[i];
-    html += `
-      <div class="leader-entry">
-        <span class="leader-name">${i + 1}. ${p.username.substring(0, 12)}</span>
-        <span class="leader-score">Pts ${Math.floor(p.points)} | L${p.level}</span>
-      </div>
-    `;
+  // Clear existing entries except header
+  while (leaderboard.children.length > 1) {
+    leaderboard.children[1].remove();
   }
+
   if (players.length === 0) {
-    html += '<div class="leader-entry" style="color: #666;">No players yet ...</div>';
+    const emptyDiv = document.createElement('div');
+    emptyDiv.className = 'leader-entry';
+    emptyDiv.style.color = '#666';
+    emptyDiv.textContent = 'No players yet ...';
+    leaderboard.appendChild(emptyDiv);
+  } else {
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      const entryDiv = document.createElement('div');
+      entryDiv.className = 'leader-entry';
+      
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'leader-name';
+      nameSpan.textContent = (i + 1) + '. ' + p.username.substring(0, 12);
+      
+      const scoreSpan = document.createElement('span');
+      scoreSpan.className = 'leader-score';
+      scoreSpan.textContent = 'Pts ' + Math.floor(p.points) + ' | L' + p.level;
+      
+      entryDiv.appendChild(nameSpan);
+      entryDiv.appendChild(scoreSpan);
+      leaderboard.appendChild(entryDiv);
+    }
   }
-  leaderboard.innerHTML = html;
 }
 
 function updateStats() {
@@ -1157,7 +1179,7 @@ gameLoop();
 if (CONFIG.TEST_MODE) {
   // Test alerts on startup
   setTimeout(() => {
-    showEventAlert('🎮 TEST MODE ACTIVE 🎮', 'Game is running! Fighters will spawn shortly.', '#fa0');
+    showEventAlert('=== TEST MODE ACTIVE ===', 'Game is running! Fighters will spawn shortly.', '#fa0');
   }, 1000);
   
   setTimeout(() => {
@@ -1167,11 +1189,11 @@ if (CONFIG.TEST_MODE) {
   
   // Test different alerts periodically
   setTimeout(() => {
-    showEventAlert('🎉 NEW FOLLOWER! 🎉', 'TestUser123 just followed the stream!', '#0ff');
+    showEventAlert('*** NEW FOLLOWER ***', 'TestUser123 just followed the stream!', '#0ff');
   }, 25000);
   
   setTimeout(() => {
-    showEventAlert('⭐ SUBSCRIBER! ⭐', 'TestSub456 subscribed to the channel!', '#f0f');
+    showEventAlert('*** SUBSCRIBER ***', 'TestSub456 subscribed to the channel!', '#f0f');
   }, 50000);
 }
 </script>
