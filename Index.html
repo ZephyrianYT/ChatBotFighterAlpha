@@ -238,6 +238,7 @@ body {
 
 <div id="leaderboard"><h3>* TOP FIGHTERS</h3></div>
 <div id="connection-status" class="disconnected">Connecting ...</div>
+<div id="health-monitor">FPS: -- | Time: 0:00 | Entities: 0</div>
 
 <div id="chat-retainer">
   <h4>. CHAT</h4>
@@ -353,6 +354,123 @@ const GameClock = {
   // Get unique ID based on time + counter
   uniqueId(prefix = '') {
     return prefix + this.getSeed() + '_' + Math.floor(Math.random() * 9999);
+  },
+  
+  // Get formatted time string for logging
+  getTimeString() {
+    const elapsed = this.elapsed();
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = Math.floor(elapsed % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+};
+
+// ============================================================================
+// GAME HEALTH CHECK SYSTEM - Detect Hangs & Monitor Performance
+// ============================================================================
+const GameHealth = {
+  lastFrameTime: performance.now(),
+  frameCount: 0,
+  fps: 60,
+  hangDetected: false,
+  maxFrameTime: 500, // Alert if frame takes >500ms
+  
+  // Update tracking
+  lastEntityCounts: { fighters: 0, projectiles: 0, ammo: 0 },
+  lastUpdateTime: performance.now(),
+  
+  // Performance history (last 10 seconds)
+  fpsHistory: [],
+  maxHistoryLength: 600, // 10 seconds at 60fps
+  
+  // Check if game is healthy
+  check() {
+    const now = performance.now();
+    const frameDelta = now - this.lastFrameTime;
+    
+    // Calculate FPS
+    if (frameDelta > 0) {
+      this.fps = Math.round(1000 / frameDelta);
+      this.fpsHistory.push(this.fps);
+      if (this.fpsHistory.length > this.maxHistoryLength) {
+        this.fpsHistory.shift();
+      }
+    }
+    
+    // Detect hang (frame took too long)
+    if (frameDelta > this.maxFrameTime && this.frameCount > 60) {
+      this.hangDetected = true;
+      console.error('[HANG DETECTED] Frame took ' + Math.round(frameDelta) + 'ms!');
+      this.diagnose();
+    }
+    
+    this.lastFrameTime = now;
+    this.frameCount++;
+  },
+  
+  // Get average FPS
+  getAverageFPS() {
+    if (this.fpsHistory.length === 0) return 60;
+    const sum = this.fpsHistory.reduce((a, b) => a + b, 0);
+    return Math.round(sum / this.fpsHistory.length);
+  },
+  
+  // Diagnose issues
+  diagnose() {
+    console.log('[DIAGNOSTICS] ════════════════════════════════');
+    console.log('[DIAGNOSTICS] Time: ' + GameClock.getTimeString());
+    console.log('[DIAGNOSTICS] FPS: ' + this.fps + ' (avg: ' + this.getAverageFPS() + ')');
+    console.log('[DIAGNOSTICS] Entities:');
+    console.log('[DIAGNOSTICS]   Fighters: ' + GameState.fighters.length);
+    console.log('[DIAGNOSTICS]   Projectiles: ' + GameState.projectiles.length);
+    console.log('[DIAGNOSTICS]   Ammo: ' + GameState.ammo.length);
+    
+    // Check entity states
+    let aliveFighters = 0;
+    let movingFighters = 0;
+    let stuckFighters = 0;
+    for (const f of GameState.fighters) {
+      if (f.alive) aliveFighters++;
+      const speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
+      if (speed > 1) movingFighters++;
+      else if (f.alive && !isZephyr(f.username)) stuckFighters++;
+    }
+    console.log('[DIAGNOSTICS]   Alive: ' + aliveFighters);
+    console.log('[DIAGNOSTICS]   Moving: ' + movingFighters);
+    console.log('[DIAGNOSTICS]   Stuck: ' + stuckFighters);
+    
+    console.log('[DIAGNOSTICS] KOTH: ' + (GameState.kothZone ? 'Active' : 'None'));
+    console.log('[DIAGNOSTICS] Zephyr: ' + (GameState.zephyr ? 'Alive' : 'Dead/Respawning'));
+    console.log('[DIAGNOSTICS] ════════════════════════════════');
+  },
+  
+  // Log status (called every 5 seconds)
+  logStatus() {
+    const time = GameClock.getTimeString();
+    const fps = this.getAverageFPS();
+    const entities = GameState.fighters.length + GameState.projectiles.length + GameState.ammo.length;
+    console.log('[STATUS] ' + time + ' | FPS: ' + fps + ' | Entities: ' + entities + ' (F:' + GameState.fighters.length + ' P:' + GameState.projectiles.length + ' A:' + GameState.ammo.length + ')');
+  },
+  
+  // Update visual health monitor
+  updateDisplay() {
+    const monitor = document.getElementById('health-monitor');
+    if (!monitor) return;
+    
+    const time = GameClock.getTimeString();
+    const fps = this.getAverageFPS();
+    const entities = GameState.fighters.length + GameState.projectiles.length + GameState.ammo.length;
+    const aliveFighters = GameState.fighters.filter(f => f.alive).length;
+    
+    monitor.textContent = 'FPS: ' + fps + ' | Time: ' + time + ' | Entities: ' + entities + ' (F:' + aliveFighters + ' P:' + GameState.projectiles.length + ' A:' + GameState.ammo.length + ')';
+    
+    // Color code by FPS
+    monitor.className = '';
+    if (fps < 30) {
+      monitor.className = 'error';
+    } else if (fps < 45) {
+      monitor.className = 'warning';
+    }
   }
 };
 
@@ -766,8 +884,9 @@ class Fighter {
     else if (isZephyr(this.username)) this.updateZephyrAI(dt);
     else this.updatePlayerAI(dt);
 
-    this.vx *= 0.98;
-    this.vy *= 0.98;
+    // Light damping to prevent infinite acceleration (but keep moving!)
+    this.vx *= 0.96;
+    this.vy *= 0.96;
 
     this.x += this.vx * dt;
     this.y += this.vy * dt;
@@ -913,8 +1032,13 @@ class Fighter {
       const dx = this.anchorX - this.x;
       const dy = this.anchorY - this.y;
       const d = Math.sqrt(dx*dx + dy*dy) || 1;
-      if (d > 30) { this.vx = (dx / d) * (this.speed * 0.6); this.vy = (dy / d) * (this.speed * 0.6); }
-      else { this.vx *= 0.9; this.vy *= 0.9; }
+      if (d > 30) { 
+        this.vx += (dx / d) * (this.speed * 0.6) * dt; 
+        this.vy += (dy / d) * (this.speed * 0.6) * dt; 
+      } else { 
+        this.vx *= 0.95; 
+        this.vy *= 0.95; 
+      }
       return;
     }
 
@@ -923,10 +1047,10 @@ class Fighter {
     const dist = Math.sqrt(dx*dx + dy*dy) || 1;
 
     if (dist > 140) {
-      this.vx = (dx / dist) * (this.speed * 0.85);
-      this.vy = (dy / dist) * (this.speed * 0.85);
+      this.vx += (dx / dist) * (this.speed * 0.85) * dt;
+      this.vy += (dy / dist) * (this.speed * 0.85) * dt;
     } else {
-      this.vx *= 0.8; this.vy *= 0.8;
+      this.vx *= 0.85; this.vy *= 0.85;
       const now = performance.now();
       if (now - this.lastAttack > this.attackCooldown) {
         const proj = new Projectile(this, target);
@@ -994,9 +1118,10 @@ class Fighter {
   moveAndAttack(target) {
     // *** NEVER HALT - ALWAYS MOVING ***
     if (!target) {
-      // NO TARGET? Random movement!
-      this.vx += (Math.random() - 0.5) * this.speed * 0.5;
-      this.vy += (Math.random() - 0.5) * this.speed * 0.5;
+      // NO TARGET? Random movement using clock!
+      const seed = GameClock.getSeed();
+      this.vx += GameClock.randomFloat(-0.5, 0.5, seed) * this.speed * 0.5;
+      this.vy += GameClock.randomFloat(-0.5, 0.5, seed + 1) * this.speed * 0.5;
       return;
     }
 
@@ -1663,35 +1788,99 @@ function updateStats() {
 //
 
 function gameLoop() {
-  // === UPDATE GLOBAL CLOCK ===
-  GameClock.tick();
-  const dt = GameClock.deltaTime;
-  const now = GameClock.now();
+  try {
+    // === UPDATE GLOBAL CLOCK ===
+    GameClock.tick();
+    const dt = GameClock.deltaTime;
+    const now = GameClock.now();
+    
+    // === HEALTH CHECK ===
+    GameHealth.check();
 
-  // Update all entities
-  for (const fighter of GameState.fighters.slice()) fighter.update(dt);
-  for (const proj of GameState.projectiles.slice()) proj.update(dt);
-  for (const ammo of GameState.ammo.slice()) ammo.update(dt);
+    // Update all entities (use try-catch to catch individual errors)
+    for (const fighter of GameState.fighters.slice()) {
+      try {
+        fighter.update(dt);
+      } catch (e) {
+        console.error('[ERROR] Fighter update failed:', fighter.username, e);
+        fighter.alive = false; // Kill broken fighter
+      }
+    }
+    
+    for (const proj of GameState.projectiles.slice()) {
+      try {
+        proj.update(dt);
+      } catch (e) {
+        console.error('[ERROR] Projectile update failed:', e);
+        proj.destroy(); // Remove broken projectile
+      }
+    }
+    
+    for (const ammo of GameState.ammo.slice()) {
+      try {
+        ammo.update(dt);
+      } catch (e) {
+        console.error('[ERROR] Ammo update failed:', e);
+        ammo.destroy(); // Remove broken ammo
+      }
+    }
 
-  // Spawn AI enemies periodically (TEST and PRODUCTION)
-  if (now - GameState.lastAISpawn > CONFIG.AI_SPAWN_INTERVAL) {
-    spawnAIEnemy();
-    GameState.lastAISpawn = now;
+    // Spawn AI enemies periodically (TEST and PRODUCTION)
+    if (now - GameState.lastAISpawn > CONFIG.AI_SPAWN_INTERVAL) {
+      try {
+        spawnAIEnemy();
+        GameState.lastAISpawn = now;
+      } catch (e) {
+        console.error('[ERROR] Enemy spawn failed:', e);
+      }
+    }
+
+    // Check if Zephyr should respawn (every second)
+    if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
+      try {
+        checkZephyrRespawn();
+      } catch (e) {
+        console.error('[ERROR] Zephyr respawn check failed:', e);
+      }
+    }
+
+    // Update KOTH zone
+    try {
+      updateKOTHZone();
+    } catch (e) {
+      console.error('[ERROR] KOTH update failed:', e);
+    }
+    
+    try {
+      updateStats();
+    } catch (e) {
+      console.error('[ERROR] Stats update failed:', e);
+    }
+
+    // Update leaderboard every 2.5 seconds
+    if (Math.floor(now / 2500) !== Math.floor((now - dt * 1000) / 2500)) {
+      try {
+        updateLeaderboard();
+      } catch (e) {
+        console.error('[ERROR] Leaderboard update failed:', e);
+      }
+    }
+    
+    // Update health monitor display every frame
+    GameHealth.updateDisplay();
+    
+    // Log detailed status every 5 seconds
+    if (Math.floor(now / 5000) !== Math.floor((now - dt * 1000) / 5000)) {
+      GameHealth.logStatus();
+    }
+
+    requestAnimationFrame(gameLoop);
+  } catch (e) {
+    console.error('[CRITICAL ERROR] Game loop crashed:', e);
+    console.error('[CRITICAL ERROR] Stack:', e.stack);
+    // Try to continue anyway
+    requestAnimationFrame(gameLoop);
   }
-
-  // Check if Zephyr should respawn (every second)
-  if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
-    checkZephyrRespawn();
-  }
-
-  // Update KOTH zone
-  updateKOTHZone();
-  updateStats();
-
-  // Update leaderboard every 2.5 seconds
-  if (Math.floor(now / 2500) !== Math.floor((now - dt * 1000) / 2500)) updateLeaderboard();
-
-  requestAnimationFrame(gameLoop);
 }
 
 // ============================================================================
@@ -1805,18 +1994,39 @@ function checkZephyrRespawn() {
   }
 }
 
-// Initialize game
-spawnZephyr();
+// ============================================================================
+// GAME INITIALIZATION
+// ============================================================================
+console.log('[INIT] ═══════════════════════════════════════════════════════════');
+console.log('[INIT] ASCII Battle Royale v2.1');
+console.log('[INIT] Starting game initialization...');
 
+// Initialize Zephyr
+spawnZephyr();
+console.log('[INIT] Zephyr spawned');
+
+// Connect to Streamlabs or show test mode
 if (!CONFIG.TEST_MODE) {
+  console.log('[INIT] Connecting to Streamlabs...');
   connectStreamlabs();
 } else {
+  console.log('[INIT] TEST MODE ACTIVE');
   const cs = document.getElementById('connection-status');
   cs.textContent = 'TEST MODE';
   cs.style.color = '#fa0';
 }
 
+console.log('[INIT] Starting game loop...');
 gameLoop();
+
+// Log initial status after 1 second
+setTimeout(() => {
+  console.log('[INIT] ═══════════════════════════════════════════════════════════');
+  console.log('[INIT] Game running! Health checks active.');
+  console.log('[INIT] Status updates every 5 seconds.');
+  console.log('[INIT] Check console for "[STATUS]" messages.');
+  console.log('[INIT] ═══════════════════════════════════════════════════════════');
+}, 1000);
 
 // ============================================================================
 // TEST MODE INITIALIZATION - Uses Same Rules as Production
