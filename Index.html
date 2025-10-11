@@ -1900,35 +1900,34 @@ function distance(x1, y1, x2, y2) {
   return Math.sqrt((x2-x1) ** 2 + (y2-y1) ** 2);
 }
 
-// ============================================================================
-// SECTION 9: MEMORY & CLEANUP OPTIMIZATION
-// ============================================================================
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                 SECTION 9: SPAWN & CLEANUP FUNCTIONS                      ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
 
 function spawnPlayer(username) {
   // Check if player already has a hero alive
   const existing = GameState.fighters.find(f => f.username === username && f.alive && !f.isEnemy);
   if (existing) {
-    // Can't spawn another! Just give HP boost
-    existing.hp = Math.min(existing.maxHp, existing.hp + 5);
-    showFloatingText(existing.x, existing.y - 30, '+5 HP', '#0f0');
-    return existing;
+    console.log('[SPAWN] Player ' + username + ' already has a hero alive');
+    addChatMessage(username, 'already fighting!');
+    return;
   }
   
-  // Check if player is on cooldown
-  const respawnTime = GameState.playerRespawnTimes[username];
-  if (respawnTime && Date.now() < respawnTime) {
-    const remainingMin = Math.ceil((respawnTime - Date.now()) / 60000);
-    console.log('[COOLDOWN] ' + username + ' must wait ' + remainingMin + ' more minutes');
-    showFloatingText(GameState.width / 2, 200, username + ': ' + remainingMin + 'min cooldown', '#f80');
-    return null;
+  // Check 10-minute cooldown
+  const lastDeath = GameState.playerRespawnTimes[username] || 0;
+  const now = Date.now();
+  if (now < lastDeath) {
+    const remainingMin = Math.ceil((lastDeath - now) / 60000);
+    console.log('[SPAWN] Player ' + username + ' on cooldown for ' + remainingMin + ' more minutes');
+    showFloatingText(GameState.width / 2, 200, username + ' on cooldown (' + remainingMin + 'm)', '#f66');
+    addChatMessage(username, 'on cooldown (' + remainingMin + 'm)');
+    return;
   }
   
-  // Clear cooldown and spawn new hero
-  delete GameState.playerRespawnTimes[username];
   const fighter = new Fighter(username, false, false);
   GameState.fighters.push(fighter);
-  showFloatingText(fighter.x, fighter.y - 50, username + ' ENTERS BATTLE!', '#0ff');
-  return fighter;
+  console.log('[SPAWN] Player ' + username + ' spawned! HP:' + fighter.hp + ' ATK:' + fighter.attack);
+  addChatMessage(username, 'entered the arena!');
 }
 
 function spawnAIEnemy() {
