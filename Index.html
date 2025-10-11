@@ -444,6 +444,8 @@ class Fighter {
     this.statusEffects = [];
     this.statusDurations = []; // Track duration for each status
     this.isRaging = false;
+    this.lastMoveTime = performance.now();
+    this.idleTime = 0;
 
     // PERSONALITY TRAITS - makes fighters unique and active!
     this.personality = this.assignPersonality();
@@ -533,13 +535,39 @@ class Fighter {
   update(dt) {
     if (!this.alive) return;
 
+    // CONSTANT HEALTH DECAY - reduces character count naturally
+    const currentSpeed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+    const isIdle = currentSpeed < CONFIG.IDLE_THRESHOLD;
+    
+    // Base decay for everyone (except Zephyr)
+    if (!isZephyr(this.username)) {
+      let decayRate = CONFIG.HEALTH_DECAY_RATE;
+      
+      // PUNISH IDLING - 3x decay if standing still!
+      if (isIdle) {
+        this.idleTime += dt;
+        if (this.idleTime > 1.0) { // After 1 second of idle
+          decayRate *= CONFIG.IDLE_DECAY_MULTIPLIER;
+          // Show warning
+          if (Math.random() < 0.02) {
+            showFloatingText(this.x, this.y - 50, 'MOVE!', '#f00');
+          }
+        }
+      } else {
+        this.idleTime = 0;
+      }
+      
+      this.hp -= decayRate * dt;
+    }
+
     // Check if in KOTH zone for RAGE boost
     if (GameState.kothZone && !this.isEnemy) {
       const distToZone = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
       this.isRaging = distToZone <= CONFIG.KOTH_ZONE_RADIUS;
-      // RAGE: 50% faster attacks when in the zone!
+      // RAGE: 50% faster attacks + HP REGEN in zone!
       this.attackCooldown = this.isRaging ? this.baseAttackCooldown * 0.5 : this.baseAttackCooldown;
       if (this.isRaging) {
+        this.hp += CONFIG.HEALTH_DECAY_RATE * 0.5 * dt; // Recover in KOTH
         this.element.style.textShadow = '0 0 10px #ff0, 0 0 15px #f80';
       } else {
         this.element.style.textShadow = '0 0 3px currentColor';
@@ -577,14 +605,18 @@ class Fighter {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
-    // Avoid center of screen (for overlay)
+    // CENTER IS NO MAN'S LAND - STRONGLY avoid it!
     const dxCenter = this.x - CONFIG.CENTER_AVOID_X;
     const dyCenter = this.y - CONFIG.CENTER_AVOID_Y;
     const distToCenter = Math.sqrt(dxCenter*dxCenter + dyCenter*dyCenter);
     if (distToCenter < CONFIG.CENTER_AVOID_RADIUS) {
+      // STRONG push away from center
       const pushForce = (CONFIG.CENTER_AVOID_RADIUS - distToCenter) / CONFIG.CENTER_AVOID_RADIUS;
-      this.vx += (dxCenter / distToCenter) * pushForce * this.speed * 0.8;
-      this.vy += (dyCenter / distToCenter) * pushForce * this.speed * 0.8;
+      this.vx += (dxCenter / distToCenter) * pushForce * this.speed * 1.5;
+      this.vy += (dyCenter / distToCenter) * pushForce * this.speed * 1.5;
+      
+      // Extra damage in center (danger zone!)
+      this.hp -= CONFIG.HEALTH_DECAY_RATE * pushForce * 2 * dt;
     }
 
     this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
@@ -646,12 +678,13 @@ class Fighter {
       }
     }
 
-    // BEHAVIOR: COLLECTING - prioritize ammo
-    if ((this.currentBehavior === 'collecting' || this.currentBehavior === 'greedy' || this.ammoCount < 2) && GameState.ammo.length > 0) {
+    // PRIORITY 1.5: COLLECT AMMO - always seek pickups!
+    if (GameState.ammo.length > 0 && (this.ammoCount < 3 || this.currentBehavior === 'collecting' || this.currentBehavior === 'greedy')) {
       for (const ammo of GameState.ammo) {
         if (ammo.collected) continue;
         const dist = distance(this.x, this.y, ammo.x, ammo.y);
-        if (dist < 400 && dist < minDist) {
+        // Ammo is ALWAYS a priority goal!
+        if (dist < 500 && dist < minDist) {
           minDist = dist;
           target = { x: ammo.x, y: ammo.y, isAmmo: true };
         }
@@ -700,11 +733,24 @@ class Fighter {
       }
     }
 
-    // If no target, move toward KOTH or patrol
-    if (!target && GameState.kothZone) {
-      const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
-      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 100) {
-        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
+    // ALWAYS HAVE A GOAL - never idle!
+    if (!target) {
+      // Default goal: KOTH zone or safe edge
+      if (GameState.kothZone && this.ammoCount > 0) {
+        const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
+        if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 50) {
+          target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
+        }
+      } else {
+        // Move to safe edge to avoid idle decay
+        const edges = [
+          { x: 150, y: 150 },
+          { x: GameState.width - 150, y: 150 },
+          { x: 150, y: GameState.height - 150 },
+          { x: GameState.width - 150, y: GameState.height - 150 },
+        ];
+        const randomEdge = edges[Math.floor(Math.random() * edges.length)];
+        target = { x: randomEdge.x, y: randomEdge.y, isEdge: true };
       }
     }
 
@@ -755,7 +801,7 @@ class Fighter {
     if (this.y > GameState.height + 50) { this.destroy(); return; }
 
     let target = null;
-    let minDist = 500; // Larger detection range
+    let minDist = 600; // Even larger detection range
     
     // AGGRESSIVE: Always hunting for targets
     for (const f of GameState.fighters) {
@@ -765,17 +811,14 @@ class Fighter {
       // Prioritize different targets based on enemy personality
       let priority = 1.0;
       if (this.personality === 'aggressive') {
-        // Target anyone nearby
-        priority = 0.9;
+        priority = 0.8;
       } else if (this.personality === 'hunter') {
-        // Target low HP players
         const hpPct = f.hp / f.maxHp;
-        if (hpPct < 0.5) priority = 0.6; // Strong preference for wounded
+        if (hpPct < 0.5) priority = 0.5; // Strong preference for wounded
       } else if (this.personality === 'determined') {
-        // Target players in KOTH
         if (GameState.kothZone) {
           const distToKOTH = distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y);
-          if (distToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5) priority = 0.7;
+          if (distToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5) priority = 0.6;
         }
       }
       
@@ -787,33 +830,39 @@ class Fighter {
     }
 
     if (target) {
-      // Chase target aggressively
+      // Chase target aggressively - NEVER IDLE
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      this.vx += (dx / dist) * this.speed * 0.7; // More aggressive movement
-      this.vy += (dy / dist) * this.speed * 0.7;
+      this.vx += (dx / dist) * this.speed * 0.8; // Even more aggressive
+      this.vy += (dy / dist) * this.speed * 0.8;
       
       const now = performance.now();
-      if (now - this.lastAttack > this.attackCooldown && dist < 280) {
+      if (now - this.lastAttack > this.attackCooldown && dist < 300) {
         this.attackTarget(target);
         this.lastAttack = now;
       }
     } else {
-      // No target? Move toward KOTH zone to create conflict
+      // ALWAYS MOVE - no idle enemies!
       if (GameState.kothZone) {
+        // Head to KOTH zone
         const dx = GameState.kothZone.x - this.x;
         const dy = GameState.kothZone.y - this.y;
         const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        this.vx += (dx / d) * this.speed * 0.5;
-        this.vy += (dy / d) * this.speed * 0.5;
+        this.vx += (dx / d) * this.speed * 0.6;
+        this.vy += (dy / d) * this.speed * 0.6;
       } else {
-        // Patrol toward center if no KOTH
-        const dx = GameState.width / 2 - this.x;
-        const dy = GameState.height / 2 - this.y;
-        const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        this.vx += (dx / d) * this.speed * 0.3;
-        this.vy += (dy / d) * this.speed * 0.3;
+        // Patrol toward nearest edge (avoid center)
+        const toLeft = this.x;
+        const toRight = GameState.width - this.x;
+        const toTop = this.y;
+        const toBottom = GameState.height - this.y;
+        const minEdge = Math.min(toLeft, toRight, toTop, toBottom);
+        
+        if (minEdge === toLeft) this.vx -= this.speed * 0.4;
+        else if (minEdge === toRight) this.vx += this.speed * 0.4;
+        else if (minEdge === toTop) this.vy -= this.speed * 0.4;
+        else this.vy += this.speed * 0.4;
       }
     }
   }
@@ -824,40 +873,44 @@ class Fighter {
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
       
-      if (target.isFlee) {
-        // Fleeing - move toward safety (Zephyr)
-        this.vx = (dx / dist) * this.speed * 1.1;
-        this.vy = (dy / dist) * this.speed * 1.1;
+      if (target.isFlee || target.isEdge) {
+        // Fleeing to safety / Moving to edge - URGENT
+        this.vx = (dx / dist) * this.speed * 1.2;
+        this.vy = (dy / dist) * this.speed * 1.2;
       } else if (target.isAmmo) {
-        // Collect ammo urgently
-        this.vx = (dx / dist) * this.speed * 0.95;
-        this.vy = (dy / dist) * this.speed * 0.95;
+        // Collect ammo urgently - GOAL
+        this.vx = (dx / dist) * this.speed * 1.0;
+        this.vy = (dy / dist) * this.speed * 1.0;
       } else if (target.isKOTH) {
-        // Move toward KOTH zone
+        // Move toward KOTH zone - PRIMARY GOAL
         if (dist > CONFIG.KOTH_ZONE_RADIUS) {
-          this.vx = (dx / dist) * this.speed * 0.8;
-          this.vy = (dy / dist) * this.speed * 0.8;
+          this.vx = (dx / dist) * this.speed * 0.9;
+          this.vy = (dy / dist) * this.speed * 0.9;
         } else {
-          // In KOTH, patrol around it
-          this.vx *= 0.8;
-          this.vy *= 0.8;
-          // Add slight circular motion in KOTH
-          this.vx += -dy * 0.02;
-          this.vy += dx * 0.02;
+          // In KOTH, keep moving in circle - NO IDLE
+          this.vx = (dx / dist) * this.speed * 0.3;
+          this.vy = (dy / dist) * this.speed * 0.3;
+          // Circular motion in KOTH
+          this.vx += -dy * 0.08;
+          this.vy += dx * 0.08;
         }
       } else if (dist > 250) {
         // Chase target aggressively
-        const speedMult = this.currentBehavior === 'aggressive' ? 1.0 : 0.9;
+        const speedMult = this.currentBehavior === 'aggressive' ? 1.1 : 1.0;
         this.vx = (dx / dist) * this.speed * speedMult;
         this.vy = (dy / dist) * this.speed * speedMult;
       } else if (dist > 180) {
-        // Closing in - strafe while approaching
-        this.vx = (dx / dist) * this.speed * 0.8 + -dy * 0.15;
-        this.vy = (dy / dist) * this.speed * 0.8 + dx * 0.15;
+        // Closing in - strafe while approaching - KEEP MOVING
+        this.vx = (dx / dist) * this.speed * 0.9 + -dy * 0.2;
+        this.vy = (dy / dist) * this.speed * 0.9 + dx * 0.2;
       } else {
-        // In range, attack while moving!
-        this.vx = (dx / dist) * this.speed * 0.4;
-        this.vy = (dy / dist) * this.speed * 0.4;
+        // In range, attack while moving! - NO STANDING STILL
+        this.vx = (dx / dist) * this.speed * 0.5;
+        this.vy = (dy / dist) * this.speed * 0.5;
+        // Add strafe component
+        this.vx += -dy * 0.15;
+        this.vy += dx * 0.15;
+        
         const now = performance.now();
         if (now - this.lastAttack > this.attackCooldown && this.ammoCount > 0) {
           this.attackTarget(target);
@@ -865,16 +918,17 @@ class Fighter {
         }
       }
     } else {
-      // No target - patrol toward action instead of stopping!
+      // NEVER TRULY IDLE - always move somewhere
       if (GameState.kothZone) {
         const dx = GameState.kothZone.x - this.x;
         const dy = GameState.kothZone.y - this.y;
         const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        this.vx += (dx / d) * this.speed * 0.3;
-        this.vy += (dy / d) * this.speed * 0.3;
+        this.vx += (dx / d) * this.speed * 0.4;
+        this.vy += (dy / d) * this.speed * 0.4;
       } else {
-        this.vx *= 0.92;
-        this.vy *= 0.92;
+        // Drift toward nearest edge
+        this.vx *= 0.95;
+        this.vy *= 0.95;
       }
     }
   }
@@ -1525,6 +1579,13 @@ if (CONFIG.TEST_MODE) {
   setTimeout(() => {
     showEventAlert('*** NEW FOLLOWER ***', 'TestUser just followed!', '#0ff');
     const newHero = spawnPlayer('TestFollower');
+    if (newHero) newHero.ammoCount = 5;
+  }, 30000);
+}
+</script>
+</body>
+</html>
+ollower');
     if (newHero) newHero.ammoCount = 5;
   }, 30000);
 }
