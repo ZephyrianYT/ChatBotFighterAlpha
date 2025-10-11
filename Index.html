@@ -197,53 +197,39 @@ body {
 </div>
 
 <script>
-// =====================
-// CONFIGURATION
-// =====================
+
+// ============================================================================
+// SECTION 1: LOGIN & CREDENTIALS
+// ============================================================================
 const CONFIG = {
-  SOCKET_TOKEN: "", // inject via server/env in production
+  // Streamlabs Socket Token - Add your token here for production
+  SOCKET_TOKEN: "",
   ACCESS_TOKEN: "",
   TEST_MODE: true,
-
+  
+  // Game Balance
   KNOCKBACK_STRENGTH: 22,
   AMMO_LIFETIME: 25000,
   HEALTH_DECAY_RATE: 0.1,
   INACTIVE_THRESHOLD: 30000,
   AI_SPAWN_INTERVAL: 20000,
+  
+  // KOTH Settings
   KOTH_ZONE_RADIUS: 140,
   KOTH_POINTS_PER_SEC: 2,
-  XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
   
   // Center screen avoidance (for stream overlay)
   CENTER_AVOID_X: 960,  // 1920/2
   CENTER_AVOID_Y: 540,  // 1080/2
-  CENTER_AVOID_RADIUS: 200, // Characters stay outside this
+  CENTER_AVOID_RADIUS: 200,
+  
+  // Progression
+  XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
 };
 
-// =====================
-// ARCHETYPES & WEAPONS
-// =====================
-const ARCHETYPES = {
-  warrior: { name: "Warrior", ascii: "X", color: null, hp: 80, atk: 8, spd: 30, weapon: "sword", statusChance: { fire: 0.15 } },
-  mage:    { name: "Mage",    ascii: "*", color: null, hp: 50, atk: 12, spd: 25, weapon: "staff", statusChance: { ice: 0.2 } },
-  rogue:   { name: "Rogue",   ascii: ">", color: null, hp: 60, atk: 10, spd: 40, weapon: "dagger", statusChance: { poison: 0.25 } },
-  tank:    { name: "Tank",    ascii: "#", color: null, hp: 120, atk: 5, spd: 20, weapon: "hammer", statusChance: {} },
-  ranger:  { name: "Ranger",  ascii: "1", color: null, hp: 65, atk: 9, spd: 35, weapon: "bow", statusChance: {} },
-  healer:  { name: "Healer",  ascii: "+", color: null, hp: 55, atk: 3, spd: 28, weapon: "wand", statusChance: {} },
-};
-
-const WEAPONS = {
-  sword:  { projectile: "-",  damage: 8,  speed: 110, color: "#f88" },
-  staff:  { projectile: "+",  damage: 12, speed: 95,  color: "#88f" },
-  dagger: { projectile: ">",  damage: 9,  speed: 130, color: "#8f8" },
-  hammer: { projectile: ".",  damage: 7,  speed: 80,  color: "#aaa" },
-  bow:    { projectile: "->", damage: 10, speed: 120, color: "#af8" },
-  wand:   { projectile: "+",  damage: -10, speed: 110, color: "#0f8" }, // Zephyr heals
-};
-
-// =====================
-// GAME STATE
-// =====================
+// ============================================================================
+// SECTION 2: GAME MODE & ASSOCIATED SETTINGS
+// ============================================================================
 const GameState = {
   fighters: [],
   projectiles: [],
@@ -259,175 +245,163 @@ const GameState = {
   lastKOTHMove: 0,
   stats: { kills: 0 },
   lastUpdate: performance.now(),
+  zephyrRespawnTime: null, // Track when Zephyr can respawn
+  zephyr: null, // Reference to Zephyr
 };
 
-// =====================
-// UTILS
-// =====================
-function hashUsername(username) {
-  let hash = 0;
-  for (let i = 0; i < username.length; i++) {
-    hash = ((hash << 5) - hash) + username.charCodeAt(i);
-    hash |= 0;
+window.addEventListener('resize', () => {
+  GameState.width = window.innerWidth;
+  GameState.height = window.innerHeight;
+});
+
+// ============================================================================
+// SECTION 3: STREAMLABS LOGIC & EVENT HANDLING
+// ============================================================================
+
+// WebSocket connection to Streamlabs
+let socket = null;
+let reconnectAttempts = 0;
+
+function connectStreamlabs() {
+  if (!CONFIG.SOCKET_TOKEN || CONFIG.SOCKET_TOKEN.length < 20) {
+    const cs = document.getElementById('connection-status');
+    cs.textContent = '> Invalid Token';
+    cs.className = 'disconnected';
+    return;
   }
-  return Math.abs(hash);
-}
-function getArchetypeForUser(username) {
-  const seed = hashUsername(username);
-  const archetypes = Object.keys(ARCHETYPES);
-  return archetypes[seed % archetypes.length];
-}
-function distance(x1, y1, x2, y2) {
-  return Math.sqrt((x2-x1) ** 2 + (y2-y1) ** 2);
-}
-function showFloatingText(x, y, text, color) {
-  const el = document.createElement('div');
-  el.className = 'damage-number';
-  el.textContent = text;
-  el.style.color = color;
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  GameState.container.appendChild(el);
-  setTimeout(() => el.remove(), 1600);
-}
-function getColorForUser(username) {
-  const hue = hashUsername(username) % 360;
-  return `hsl(${hue}, 80%, 60%)`;
-}
-function getPlayerData(username) {
-  if (!GameState.playerData[username]) {
-    GameState.playerData[username] = {
-      username,
-      archetype: username === "Zephyr" ? "healer" : getArchetypeForUser(username),
-      level: 1,
-      xp: 0,
-      kills: 0,
-      deaths: 0,
-      points: 0,  // PvP/KOTH points bucket
+  
+  try {
+    const eioVersion = reconnectAttempts % 2 === 0 ? '4' : '3';
+    const url = 'wss://sockets.streamlabs.com/socket.io/?token=' + CONFIG.SOCKET_TOKEN + '&transport=websocket&EIO=' + eioVersion;
+    socket = new WebSocket(url);
+
+    socket.onopen = () => {
+      reconnectAttempts = 0;
+      const cs = document.getElementById('connection-status');
+      cs.textContent = 'Connected';
+      cs.className = 'connected';
     };
+    
+    socket.onmessage = (event) => {
+      const msg = event.data;
+      if (msg.startsWith('2')) socket.send('3'); // Pong
+      else if (msg.startsWith('42')) {
+        try {
+          const jsonStr = msg.substring(2);
+          const data = JSON.parse(jsonStr);
+          handleStreamlabsEvent(data);
+        } catch (e) {}
+      }
+    };
+    
+    socket.onerror = () => {
+      const cs = document.getElementById('connection-status');
+      cs.textContent = '> Error';
+      cs.className = 'disconnected';
+    };
+    
+    socket.onclose = () => {
+      const cs = document.getElementById('connection-status');
+      cs.textContent = 'Disconnected';
+      cs.className = 'disconnected';
+      reconnectAttempts++;
+      if (reconnectAttempts < 5) {
+        const delay = Math.min(5000 * reconnectAttempts, 30000);
+        setTimeout(connectStreamlabs, delay);
+      } else {
+        cs.textContent = 'Failed';
+      }
+    };
+  } catch (e) {
+    const cs = document.getElementById('connection-status');
+    cs.textContent = '> Failed';
+    cs.className = 'disconnected';
   }
-  return GameState.playerData[username];
 }
-function isZephyr(username) { return username === "Zephyr"; }
 
-// =====================
-// AMMO
-// =====================
-class Ammo {
-  constructor(word, x, y) {
-    this.word = word;
-    this.x = (typeof x === 'number' ? x : Math.random() * GameState.width);
-    this.y = (typeof y === 'number' ? y : Math.random() * GameState.height);
-    this.collected = false;
-    this.spawnTime = Date.now();
-    this.vx = (Math.random() - 0.5) * 1.6;
-    this.vy = (Math.random() - 0.5) * 1.6;
-    this.createElement();
-  }
-  createElement() {
-    this.element = document.createElement('div');
-    this.element.className = 'ammo-particle';
-    this.element.textContent = this.word;
-    this.element.style.left = `${this.x}px`;
-    this.element.style.top = `${this.y}px`;
-    GameState.container.appendChild(this.element);
-  }
-  update(dt) {
-    if (this.collected) return;
-    if (Date.now() - this.spawnTime > CONFIG.AMMO_LIFETIME) { this.destroy(); return; }
-    this.x += this.vx * 24 * dt;
-    this.y += this.vy * 24 * dt;
-    if (this.x < 0 || this.x > GameState.width) this.vx *= -1;
-    if (this.y < 0 || this.y > GameState.height) this.vy *= -1;
-    this.element.style.left = `${this.x}px`;
-    this.element.style.top = `${this.y}px`;
-    for (const f of GameState.fighters) {
-      if (!f.alive || f.isEnemy) continue;
-      if (distance(f.x, f.y, this.x, this.y) < 35) {
-        f.collectAmmo(this.word);
-        this.destroy();
-        break;
+function handleStreamlabsEvent(data) {
+  if (!Array.isArray(data) || data.length < 2) return;
+  const eventType = data[0];
+  const eventData = data[1];
+  if (!eventData) return;
+
+  if (eventType === 'event') {
+    const messages = eventData.message || [];
+    for (const msg of messages) {
+      const username = msg.name || msg.from || 'Viewer';
+      const text = msg.message || '';
+      const eventSubType = msg.type || '';
+      
+      // ALL ALERTS SUMMON A BOSS!
+      if (eventSubType === 'follow') {
+        showEventAlert('*** NEW FOLLOWER ***', username + ' just followed the stream!', '#0ff');
+        spawnBoss();
+        spawnPlayer(username);
+        spawnAmmo(username, 'WELCOME FOLLOW THANKS AWESOME', true);
+      } else if (eventSubType === 'subscription' || eventSubType === 'resub') {
+        showEventAlert('*** SUBSCRIBER ***', username + ' subscribed to the channel!', '#f0f');
+        spawnBoss();
+        spawnPlayer(username);
+        spawnAmmo(username, 'SUB HYPE LEGENDARY EPIC AMAZING THANKS', true);
+        spawnAIEnemy();
+        spawnAIEnemy();
+        spawnAIEnemy();
+      } else if (eventSubType === 'bits' || eventSubType === 'cheer') {
+        const amount = msg.amount || 0;
+        showEventAlert('*** BITS CHEERED ***', username + ' cheered ' + amount + ' bits!', '#ff0');
+        spawnBoss();
+        spawnPlayer(username);
+        spawnAmmo(username, 'BITS ENERGY BOOST POWER HYPE', true);
+        spawnAIEnemy();
+        spawnAIEnemy();
+      } else {
+        // Regular chat message
+        spawnPlayer(username);
+        if (text && text.length > 0) {
+          spawnAmmo(username, text, false);
+          addChatLine(username, text);
+        }
       }
     }
   }
-  destroy() {
-    if (this.element) this.element.remove();
-    const idx = GameState.ammo.indexOf(this);
-    if (idx > -1) GameState.ammo.splice(idx, 1);
+
+  if (eventType === 'donation' || eventType === 'tip') {
+    const amount = eventData.amount || 0;
+    const username = eventData.name || eventData.from || 'Anonymous';
+    showEventAlert('*** DONATION ***', username + ' donated $' + amount + '! BOSS INCOMING!', '#0f0');
+    spawnBoss();
+    spawnBoss(); // Double boss for donations!
+    spawnPlayer(username);
+    spawnAmmo(username, 'DONATION LEGENDARY EPIC AMAZING INCREDIBLE', true);
   }
 }
 
-// =====================
-// PROJECTILES
-// =====================
-class Projectile {
-  constructor(owner, target) {
-    this.owner = owner;
-    this.x = owner.x;
-    this.y = owner.y;
-    const weapon = WEAPONS[owner.weaponType];
-    this.damage = weapon.damage;
-    this.speed = weapon.speed;
-    this.color = weapon.color;
-    this.symbol = weapon.projectile;
-    const dx = target.x - this.x;
-    const dy = target.y - this.y;
-    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-    this.vx = (dx / dist) * this.speed;
-    this.vy = (dy / dist) * this.speed;
-    this.lifetime = 0;
-    this.maxLifetime = 4.5;
-    this.createElement();
-  }
-  createElement() {
-    this.element = document.createElement('div');
-    this.element.className = 'projectile';
-    this.element.textContent = this.symbol;
-    this.element.style.color = this.color;
-    this.element.style.left = `${this.x}px`;
-    this.element.style.top = `${this.y}px`;
-    GameState.container.appendChild(this.element);
-  }
-  update(dt) {
-    this.lifetime += dt;
-    if (this.lifetime > this.maxLifetime) { this.destroy(); return; }
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    this.element.style.left = `${this.x}px`;
-    this.element.style.top = `${this.y}px`;
-
-    for (const f of GameState.fighters) {
-      if (!f.alive || f === this.owner) continue;
-
-      // Allied enemies: they don't hurt each other; they hurt all players (including Zephyr).
-      // PvP enabled: players can hurt players.
-      const ownerIsEnemy = this.owner.isEnemy;
-      const targetIsEnemy = f.isEnemy;
-      const friendlyEnemyFire = ownerIsEnemy && targetIsEnemy;
-      if (friendlyEnemyFire) continue;
-
-      if (distance(f.x, f.y, this.x, this.y) < 25) {
-        f.takeDamage(this.damage, this.owner);
-        const dx = f.x - this.owner.x;
-        const dy = f.y - this.owner.y;
-        const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        f.vx += (dx / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
-        f.vy += (dy / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
-        this.destroy();
-        break;
-      }
-    }
-  }
-  destroy() {
-    if (this.element) this.element.remove();
-    const idx = GameState.projectiles.indexOf(this);
-    if (idx > -1) GameState.projectiles.splice(idx, 1);
-  }
+// Show 15-second event alert in center of screen
+function showEventAlert(title, message, color) {
+  const alertBox = document.getElementById('event-alert');
+  const alertTitle = document.getElementById('alert-title');
+  const alertMessage = document.getElementById('alert-message');
+  
+  alertTitle.textContent = title;
+  alertMessage.textContent = message;
+  alertBox.style.borderColor = color;
+  alertBox.style.color = color;
+  alertBox.style.boxShadow = '0 0 20px ' + color;
+  alertBox.style.display = 'block';
+  
+  // Pulse animation
+  alertBox.style.animation = 'pulse 0.6s ease-in-out 3';
+  
+  // Auto-hide after 15 seconds
+  setTimeout(() => {
+    alertBox.style.display = 'none';
+  }, 15000);
 }
 
-// =====================
-// FIGHTERS
-// =====================
+// ============================================================================
+// SECTION 4: FIGHTERS LOGIC & AI BEHAVIOR
+// ============================================================================
+
 class Fighter {
   constructor(username, isEnemy = false, isBoss = false) {
     this.username = username;
@@ -452,20 +426,20 @@ class Fighter {
     this.attack = Math.round(arch.atk * levelMult * (isBoss ? 3 : 1));
     this.speed = arch.spd;
 
-    this.color = isZephyr(username) ? "#0ff" : getColorForUser(username);
-    this.ascii = isZephyr(username) ? "@" : arch.ascii;
-    this.weaponType = isZephyr(username) ? "wand" : arch.weapon;
+    this.color = isZephyr(username) ? '#0ff' : getColorForUser(username);
+    this.ascii = isZephyr(username) ? '@' : arch.ascii;
+    this.weaponType = isZephyr(username) ? 'wand' : arch.weapon;
 
     this.ammoCount = 0;
     this.vx = 0;
     this.vy = 0;
     this.lastAttack = 0;
-    this.attackCooldown = isZephyr(username) ? 1600 : 1800; // Faster attacks for more action
+    this.attackCooldown = isZephyr(username) ? 1600 : 1800;
     this.baseAttackCooldown = this.attackCooldown;
     this.statusEffects = [];
-    this.isRaging = false; // Rage state when in KOTH zone
+    this.isRaging = false;
 
-    this.anchorX = GameState.width / 2;  // for Zephyr's home anchor
+    this.anchorX = GameState.width / 2;
     this.anchorY = GameState.height - 80;
 
     this.spawnPosition();
@@ -493,8 +467,8 @@ class Fighter {
     this.element = document.createElement('div');
     this.element.className = 'entity';
     this.element.style.color = this.color;
-    this.element.style.left = `${this.x}px`;
-    this.element.style.top = `${this.y}px`;
+    this.element.style.left = this.x + 'px';
+    this.element.style.top = this.y + 'px';
     if (this.isBoss) this.element.style.fontSize = '24px';
     this.updateDisplay();
     GameState.container.appendChild(this.element);
@@ -506,9 +480,8 @@ class Fighter {
     const hpBar = '_'.repeat(bars) + '"'.repeat(5 - bars);
 
     const nameDisplay = this.username.substring(0, 10);
-    const ammoDisplay = this.isEnemy ? "" : ` [${this.ammoCount}]`;
+    const ammoDisplay = this.isEnemy ? '' : ' [' + this.ammoCount + ']';
 
-    // Zephyr should show as Support, no points earned
     const line4 = isZephyr(this.username)
       ? hpBar + ' SUPPORT' + ammoDisplay
       : hpBar + ammoDisplay;
@@ -531,7 +504,7 @@ class Fighter {
       // RAGE: 50% faster attacks when in the zone!
       this.attackCooldown = this.isRaging ? this.baseAttackCooldown * 0.5 : this.baseAttackCooldown;
       if (this.isRaging) {
-        this.element.style.textShadow = '0 0 10px #ff0, 0 0 15px #f80'; // Rage glow
+        this.element.style.textShadow = '0 0 10px #ff0, 0 0 15px #f80';
       } else {
         this.element.style.textShadow = '0 0 3px currentColor';
       }
@@ -557,7 +530,6 @@ class Fighter {
     const dyCenter = this.y - CONFIG.CENTER_AVOID_Y;
     const distToCenter = Math.sqrt(dxCenter*dxCenter + dyCenter*dyCenter);
     if (distToCenter < CONFIG.CENTER_AVOID_RADIUS) {
-      // Push away from center
       const pushForce = (CONFIG.CENTER_AVOID_RADIUS - distToCenter) / CONFIG.CENTER_AVOID_RADIUS;
       this.vx += (dxCenter / distToCenter) * pushForce * this.speed * 0.8;
       this.vy += (dyCenter / distToCenter) * pushForce * this.speed * 0.8;
@@ -566,13 +538,13 @@ class Fighter {
     this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
     this.y = Math.max(30, Math.min(GameState.height - 30, this.y));
 
-    this.element.style.left = `${this.x}px`;
-    this.element.style.top = `${this.y}px`;
+    this.element.style.left = this.x + 'px';
+    this.element.style.top = this.y + 'px';
     this.updateDisplay();
   }
 
   updatePlayerAI(dt) {
-    // Players: seek KOTH zone, collect ammo, fight enemies
+    // Players: collect ammo, seek KOTH, fight enemies AND other players (PvP enabled)
     let target = null;
     let minDist = Infinity;
 
@@ -588,25 +560,34 @@ class Fighter {
       }
     }
 
-    // Priority 2: Seek KOTH zone if we have ammo
+    // Priority 2: Seek KOTH zone and fight there (PvP + enemies)
     if (!target && this.ammoCount > 0 && GameState.kothZone) {
       const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
       
-      // If not in KOTH zone, move toward it
+      // Move toward KOTH if not there yet
       if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS) {
         target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
         minDist = distToKOTH;
       }
       
-      // Look for enemies to fight (prefer those near KOTH)
+      // Find fighters to attack (enemies prioritized, but PvP enabled)
       for (const f of GameState.fighters) {
         if (!f.alive || f === this) continue;
+        if (isZephyr(f.username)) continue; // Don't attack the healer
+        
         const dist = distance(this.x, this.y, f.x, f.y);
         const distFighterToKOTH = GameState.kothZone ? distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y) : 999;
-        const isPreferred = f.isEnemy ? 1 : (!isZephyr(f.username) ? 2 : 3);
-        const kothBonus = distFighterToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5 ? 0.5 : 1; // Prefer targets near KOTH
+        
+        // Enemies are priority 1, other players are priority 1.5 (close preference)
+        // This enables full PvP - players will fight each other!
+        const isPreferred = f.isEnemy ? 1.0 : 1.5;
+        const kothBonus = distFighterToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5 ? 0.5 : 1;
         const score = dist * isPreferred * kothBonus;
-        if (score < minDist * 0.8) { minDist = score; target = f; }
+        
+        if (score < minDist * 0.8) { 
+          minDist = score; 
+          target = f; 
+        }
       }
     }
 
@@ -614,20 +595,17 @@ class Fighter {
   }
 
   updateZephyrAI(dt) {
-    // Zephyr: bottom-center anchor; breaks away to heal injured players; avoids earning points
     let target = null;
     let best = Infinity;
 
-    // Seek lowest HP non-enemy, excluding self
     for (const f of GameState.fighters) {
       if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
       const hpPct = f.hp / f.maxHp;
       const dist = distance(this.x, this.y, f.x, f.y);
-      const score = hpPct * 2 + dist / 600; // prioritize injured and closer
+      const score = hpPct * 2 + dist / 600;
       if (score < best) { best = score; target = f; }
     }
 
-    // If no one needs help, drift back towards anchor
     if (!target) {
       const dx = this.anchorX - this.x;
       const dy = this.anchorY - this.y;
@@ -637,7 +615,6 @@ class Fighter {
       return;
     }
 
-    // Move near the target; if close, pulse heals
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = Math.sqrt(dx*dx + dy*dy) || 1;
@@ -649,7 +626,6 @@ class Fighter {
       this.vx *= 0.8; this.vy *= 0.8;
       const now = performance.now();
       if (now - this.lastAttack > this.attackCooldown) {
-        // Zephyr uses wand heal; no ammo required; doesn't earn points
         const proj = new Projectile(this, target);
         GameState.projectiles.push(proj);
         this.lastAttack = now;
@@ -658,19 +634,14 @@ class Fighter {
   }
 
   updateEnemyAI(dt) {
-    // Enemies seek KOTH zone and hold ground there!
-    
-    // Check if we're below map, destroy if so
     if (this.y > GameState.height + 50) { this.destroy(); return; }
 
     let target = null;
     let minDist = 350;
     
-    // SEEK KOTH ZONE - enemies want to control it!
     if (GameState.kothZone) {
       const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
       
-      // If far from KOTH, move toward it
       if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS * 1.2) {
         const dx = GameState.kothZone.x - this.x;
         const dy = GameState.kothZone.y - this.y;
@@ -680,7 +651,6 @@ class Fighter {
       }
     }
     
-    // Find targets to attack (prefer those in/near KOTH)
     for (const f of GameState.fighters) {
       if (!f.alive || f.isEnemy) continue;
       const dist = distance(this.x, this.y, f.x, f.y);
@@ -711,25 +681,20 @@ class Fighter {
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
       
       if (target.isAmmo) {
-        // Collect ammo
         this.vx = (dx / dist) * this.speed * 0.85;
         this.vy = (dy / dist) * this.speed * 0.85;
       } else if (target.isKOTH) {
-        // Move toward KOTH zone
         if (dist > CONFIG.KOTH_ZONE_RADIUS) {
           this.vx = (dx / dist) * this.speed * 0.7;
           this.vy = (dy / dist) * this.speed * 0.7;
         } else {
-          // In KOTH, slow down and hold ground
           this.vx *= 0.85;
           this.vy *= 0.85;
         }
       } else if (dist > 200) {
-        // Chase enemy
         this.vx = (dx / dist) * this.speed * 0.85;
         this.vy = (dy / dist) * this.speed * 0.85;
       } else {
-        // In range, attack!
         this.vx *= 0.85; this.vy *= 0.85;
         const now = performance.now();
         if (now - this.lastAttack > this.attackCooldown && this.ammoCount > 0) {
@@ -744,7 +709,6 @@ class Fighter {
 
   attackTarget(target) {
     if (!target || !target.alive) return;
-    // Players spend ammo; Zephyr doesn't use ammo to heal
     if (!this.isEnemy && !isZephyr(this.username) && this.ammoCount > 0) this.ammoCount--;
     const proj = new Projectile(this, target);
     GameState.projectiles.push(proj);
@@ -756,11 +720,9 @@ class Fighter {
     const dmgColor = isHeal ? '#0f8' : '#f66';
     showFloatingText(this.x, this.y - 20, (isHeal ? '+' : '-') + Math.abs(Math.round(amount)), dmgColor);
 
-    // Points: attacker earns on damaging/finishing only if attacker is a PLAYER and NOT Zephyr.
-    // Finisher bonus on death; KOTH handled separately.
     if (!isHeal && attacker && !attacker.isEnemy && !isZephyr(attacker.username)) {
       const pdata = getPlayerData(attacker.username);
-      pdata.points += Math.min(Math.abs(amount), 5); // small damage drip points
+      pdata.points += Math.min(Math.abs(amount), 5);
     }
 
     if (this.hp <= 0) this.die(attacker);
@@ -770,11 +732,19 @@ class Fighter {
     this.alive = false;
     this.element.style.opacity = '0.3';
     GameState.stats.kills++;
+    
+    // Special handling for Zephyr death - set respawn timer
+    if (isZephyr(this.username)) {
+      GameState.zephyrRespawnTime = Date.now() + (15 * 60 * 1000); // 15 minutes
+      GameState.zephyr = null;
+      showFloatingText(GameState.width / 2, 100, 'ZEPHYR FALLEN! Respawn in 15 min', '#f00');
+    }
+    
     if (killer && !killer.isEnemy && !isZephyr(killer.username)) {
       const data = getPlayerData(killer.username);
       data.kills++;
       data.xp += 50;
-      data.points += 50; // kill bonus
+      data.points += 50;
       if (data.xp >= CONFIG.XP_CURVE[data.level] && data.level < 10) {
         data.level++;
         showFloatingText(killer.x, killer.y - 40, 'LEVEL UP!', '#ff0');
@@ -790,9 +760,209 @@ class Fighter {
   }
 }
 
-// =====================
-// SPAWNERS
-// =====================
+// ============================================================================
+// SECTION 5: ARCHETYPES & WEAPON DEFINITIONS
+// ============================================================================
+
+const ARCHETYPES = {
+  warrior: { name: 'Warrior', ascii: 'X', color: null, hp: 80, atk: 8, spd: 30, weapon: 'sword', statusChance: { fire: 0.15 } },
+  mage:    { name: 'Mage',    ascii: '*', color: null, hp: 50, atk: 12, spd: 25, weapon: 'staff', statusChance: { ice: 0.2 } },
+  rogue:   { name: 'Rogue',   ascii: '>', color: null, hp: 60, atk: 10, spd: 40, weapon: 'dagger', statusChance: { poison: 0.25 } },
+  tank:    { name: 'Tank',    ascii: '#', color: null, hp: 120, atk: 5, spd: 20, weapon: 'hammer', statusChance: {} },
+  ranger:  { name: 'Ranger',  ascii: '1', color: null, hp: 65, atk: 9, spd: 35, weapon: 'bow', statusChance: {} },
+  healer:  { name: 'Healer',  ascii: '+', color: null, hp: 55, atk: 3, spd: 28, weapon: 'wand', statusChance: {} },
+};
+
+const WEAPONS = {
+  sword:  { projectile: '-',  damage: 8,  speed: 110, color: '#f88' },
+  staff:  { projectile: '+',  damage: 12, speed: 95,  color: '#88f' },
+  dagger: { projectile: '>',  damage: 9,  speed: 130, color: '#8f8' },
+  hammer: { projectile: '.',  damage: 7,  speed: 80,  color: '#aaa' },
+  bow:    { projectile: '->', damage: 10, speed: 120, color: '#af8' },
+  wand:   { projectile: '+',  damage: -10, speed: 110, color: '#0f8' }, // Heals
+};
+
+// ============================================================================
+// SECTION 6: PALETTE SEED & COLOR GENERATION
+// ============================================================================
+
+function hashUsername(username) {
+  let hash = 0;
+  for (let i = 0; i < username.length; i++) {
+    hash = ((hash << 5) - hash) + username.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getColorForUser(username) {
+  const hue = hashUsername(username) % 360;
+  return 'hsl(' + hue + ', 80%, 60%)';
+}
+
+function getArchetypeForUser(username) {
+  const seed = hashUsername(username);
+  const archetypes = Object.keys(ARCHETYPES);
+  return archetypes[seed % archetypes.length];
+}
+
+function getPlayerData(username) {
+  if (!GameState.playerData[username]) {
+    GameState.playerData[username] = {
+      username,
+      archetype: username === 'Zephyr' ? 'healer' : getArchetypeForUser(username),
+      level: 1,
+      xp: 0,
+      kills: 0,
+      deaths: 0,
+      points: 0,
+    };
+  }
+  return GameState.playerData[username];
+}
+
+function isZephyr(username) { return username === 'Zephyr'; }
+
+// ============================================================================
+// SECTION 7: VISUALS & PROJECTILES
+// ============================================================================
+
+class Projectile {
+  constructor(owner, target) {
+    this.owner = owner;
+    this.x = owner.x;
+    this.y = owner.y;
+    const weapon = WEAPONS[owner.weaponType];
+    this.damage = weapon.damage;
+    this.speed = weapon.speed;
+    this.color = weapon.color;
+    this.symbol = weapon.projectile;
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    this.vx = (dx / dist) * this.speed;
+    this.vy = (dy / dist) * this.speed;
+    this.lifetime = 0;
+    this.maxLifetime = 4.5;
+    this.createElement();
+  }
+
+  createElement() {
+    this.element = document.createElement('div');
+    this.element.className = 'projectile';
+    this.element.textContent = this.symbol;
+    this.element.style.color = this.color;
+    this.element.style.left = this.x + 'px';
+    this.element.style.top = this.y + 'px';
+    GameState.container.appendChild(this.element);
+  }
+
+  update(dt) {
+    this.lifetime += dt;
+    if (this.lifetime > this.maxLifetime) { this.destroy(); return; }
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.element.style.left = this.x + 'px';
+    this.element.style.top = this.y + 'px';
+
+    for (const f of GameState.fighters) {
+      if (!f.alive || f === this.owner) continue;
+
+      const ownerIsEnemy = this.owner.isEnemy;
+      const targetIsEnemy = f.isEnemy;
+      const friendlyEnemyFire = ownerIsEnemy && targetIsEnemy;
+      if (friendlyEnemyFire) continue;
+
+      if (distance(f.x, f.y, this.x, this.y) < 25) {
+        f.takeDamage(this.damage, this.owner);
+        const dx = f.x - this.owner.x;
+        const dy = f.y - this.owner.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        f.vx += (dx / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
+        f.vy += (dy / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
+        this.destroy();
+        break;
+      }
+    }
+  }
+
+  destroy() {
+    if (this.element) this.element.remove();
+    const idx = GameState.projectiles.indexOf(this);
+    if (idx > -1) GameState.projectiles.splice(idx, 1);
+  }
+}
+
+class Ammo {
+  constructor(word, x, y) {
+    this.word = word;
+    this.x = (typeof x === 'number' ? x : Math.random() * GameState.width);
+    this.y = (typeof y === 'number' ? y : Math.random() * GameState.height);
+    this.collected = false;
+    this.spawnTime = Date.now();
+    this.vx = (Math.random() - 0.5) * 1.6;
+    this.vy = (Math.random() - 0.5) * 1.6;
+    this.createElement();
+  }
+
+  createElement() {
+    this.element = document.createElement('div');
+    this.element.className = 'ammo-particle';
+    this.element.textContent = this.word;
+    this.element.style.left = this.x + 'px';
+    this.element.style.top = this.y + 'px';
+    GameState.container.appendChild(this.element);
+  }
+
+  update(dt) {
+    if (this.collected) return;
+    if (Date.now() - this.spawnTime > CONFIG.AMMO_LIFETIME) { this.destroy(); return; }
+    this.x += this.vx * 24 * dt;
+    this.y += this.vy * 24 * dt;
+    if (this.x < 0 || this.x > GameState.width) this.vx *= -1;
+    if (this.y < 0 || this.y > GameState.height) this.vy *= -1;
+    this.element.style.left = this.x + 'px';
+    this.element.style.top = this.y + 'px';
+    for (const f of GameState.fighters) {
+      if (!f.alive || f.isEnemy) continue;
+      if (distance(f.x, f.y, this.x, this.y) < 35) {
+        f.collectAmmo(this.word);
+        this.destroy();
+        break;
+      }
+    }
+  }
+
+  destroy() {
+    if (this.element) this.element.remove();
+    const idx = GameState.ammo.indexOf(this);
+    if (idx > -1) GameState.ammo.splice(idx, 1);
+  }
+}
+
+function showFloatingText(x, y, text, color) {
+  const el = document.createElement('div');
+  el.className = 'damage-number';
+  el.textContent = text;
+  el.style.color = color;
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  GameState.container.appendChild(el);
+  setTimeout(() => el.remove(), 1600);
+}
+
+// ============================================================================
+// SECTION 8: ASCII RULES & DISPLAY LOGIC
+// ============================================================================
+
+function distance(x1, y1, x2, y2) {
+  return Math.sqrt((x2-x1) ** 2 + (y2-y1) ** 2);
+}
+
+// ============================================================================
+// SECTION 9: MEMORY & CLEANUP OPTIMIZATION
+// ============================================================================
+
 function spawnPlayer(username) {
   const existing = GameState.fighters.find(f => f.username === username && f.alive && !f.isEnemy);
   if (existing) {
@@ -817,23 +987,22 @@ function spawnAmmo(username, message, edgeSpawn = false) {
     if (word.length > 15) continue;
     let x, y;
     if (edgeSpawn) {
-      // Spawn around edges of map, avoiding center
       const side = Math.floor(Math.random() * 4);
-      if (side === 0) { // top
+      if (side === 0) {
         x = Math.random() * GameState.width;
         y = 50 + Math.random() * 100;
-      } else if (side === 1) { // bottom
+      } else if (side === 1) {
         x = Math.random() * GameState.width;
         y = GameState.height - 150 + Math.random() * 100;
-      } else if (side === 2) { // left
+      } else if (side === 2) {
         x = 50 + Math.random() * 100;
         y = Math.random() * GameState.height;
-      } else { // right
+      } else {
         x = GameState.width - 150 + Math.random() * 100;
         y = Math.random() * GameState.height;
       }
     } else {
-      x = undefined; // Random spawn
+      x = undefined;
       y = undefined;
     }
     const ammo = new Ammo(word, x, y);
@@ -852,152 +1021,10 @@ function addChatLine(username, message) {
   retainer.scrollTop = retainer.scrollHeight;
 }
 
-// =====================
-// STREAMLABS (optional)
-// =====================
-let socket = null;
-let reconnectAttempts = 0;
-function connectStreamlabs() {
-  if (!CONFIG.SOCKET_TOKEN || CONFIG.SOCKET_TOKEN.length < 20) {
-    const cs = document.getElementById('connection-status');
-    cs.textContent = '> Invalid Token';
-    cs.className = 'disconnected';
-    return;
-  }
-  try {
-    const eioVersion = reconnectAttempts % 2 === 0 ? '4' : '3';
-    const url = `wss://sockets.streamlabs.com/socket.io/?token=${CONFIG.SOCKET_TOKEN}&transport=websocket&EIO=${eioVersion}`;
-    socket = new WebSocket(url);
-
-    socket.onopen = () => {
-      reconnectAttempts = 0;
-      const cs = document.getElementById('connection-status');
-      cs.textContent = 'Connected';
-      cs.className = 'connected';
-    };
-    socket.onmessage = (event) => {
-      const msg = event.data;
-      if (msg.startsWith('2')) socket.send('3'); // Pong
-      else if (msg.startsWith('42')) {
-        try {
-          const jsonStr = msg.substring(2);
-          const data = JSON.parse(jsonStr);
-          handleStreamlabsEvent(data);
-        } catch (e) {}
-      }
-    };
-    socket.onerror = () => {
-      const cs = document.getElementById('connection-status');
-      cs.textContent = '> Error';
-      cs.className = 'disconnected';
-    };
-    socket.onclose = () => {
-      const cs = document.getElementById('connection-status');
-      cs.textContent = 'Disconnected';
-      cs.className = 'disconnected';
-      reconnectAttempts++;
-      if (reconnectAttempts < 5) {
-        const delay = Math.min(5000 * reconnectAttempts, 30000);
-        setTimeout(connectStreamlabs, delay);
-      } else {
-        cs.textContent = 'Failed';
-      }
-    };
-  } catch (e) {
-    const cs = document.getElementById('connection-status');
-    cs.textContent = '> Failed';
-    cs.className = 'disconnected';
-  }
-}
-
-function handleStreamlabsEvent(data) {
-  if (!Array.isArray(data) || data.length < 2) return;
-  const eventType = data[0];
-  const eventData = data[1];
-  if (!eventData) return;
-
-  if (eventType === 'event') {
-    const messages = eventData.message || [];
-    for (const msg of messages) {
-      const username = msg.name || msg.from || 'Viewer';
-      const text = msg.message || "";
-      const eventSubType = msg.type || '';
-      
-      // ALL ALERTS SUMMON A BOSS!
-      if (eventSubType === 'follow') {
-        showEventAlert('*** NEW FOLLOWER ***', username + ' just followed the stream!', '#0ff');
-        spawnBoss();
-        spawnPlayer(username);
-        spawnAmmo(username, 'WELCOME FOLLOW THANKS AWESOME', true); // Edge spawn
-      } else if (eventSubType === 'subscription' || eventSubType === 'resub') {
-        showEventAlert('*** SUBSCRIBER ***', username + ' subscribed to the channel!', '#f0f');
-        spawnBoss();
-        spawnPlayer(username);
-        spawnAmmo(username, 'SUB HYPE LEGENDARY EPIC AMAZING THANKS', true);
-        // Extra enemies for more chaos
-        spawnAIEnemy();
-        spawnAIEnemy();
-        spawnAIEnemy();
-      } else if (eventSubType === 'bits' || eventSubType === 'cheer') {
-        const amount = msg.amount || 0;
-        showEventAlert('*** BITS CHEERED ***', username + ' cheered ' + amount + ' bits!', '#ff0');
-        spawnBoss();
-        spawnPlayer(username);
-        spawnAmmo(username, 'BITS ENERGY BOOST POWER HYPE', true);
-        spawnAIEnemy();
-        spawnAIEnemy();
-      } else {
-        // Regular chat message
-        spawnPlayer(username);
-        if (text && text.length > 0) {
-          spawnAmmo(username, text, false); // Normal random spawn
-          addChatLine(username, text);
-        }
-      }
-    }
-  }
-
-  if (eventType === 'donation' || eventType === 'tip') {
-    const amount = eventData.amount || 0;
-    const username = eventData.name || eventData.from || 'Anonymous';
-    showEventAlert('*** DONATION ***', username + ' donated $' + amount + '! BOSS INCOMING!', '#0f0');
-    spawnBoss();
-    spawnBoss(); // Double boss for donations!
-    spawnPlayer(username);
-    spawnAmmo(username, 'DONATION LEGENDARY EPIC AMAZING INCREDIBLE', true);
-  }
-}
-
-// Show 15-second event alert in center of screen
-function showEventAlert(title, message, color) {
-  const alertBox = document.getElementById('event-alert');
-  const alertTitle = document.getElementById('alert-title');
-  const alertMessage = document.getElementById('alert-message');
-  
-  alertTitle.textContent = title;
-  alertMessage.textContent = message;
-  alertBox.style.borderColor = color;
-  alertBox.style.color = color;
-  alertBox.style.boxShadow = `0 0 20px ${color}`;
-  alertBox.style.display = 'block';
-  
-  // Pulse animation
-  alertBox.style.animation = 'pulse 0.6s ease-in-out 3';
-  
-  // Auto-hide after 15 seconds
-  setTimeout(() => {
-    alertBox.style.display = 'none';
-  }, 15000);
-}
-
-// =====================
-// BOSS & KOTH
-// =====================
 function spawnBoss() {
   if (GameState.boss && GameState.boss.alive) return;
   const boss = new Fighter('BOSS_' + Date.now(), true, true);
   
-  // Spawn boss at edge, heading toward KOTH
   const side = Math.floor(Math.random() * 4);
   if (side === 0) { boss.x = GameState.width / 2; boss.y = -30; }
   else if (side === 1) { boss.x = GameState.width / 2; boss.y = GameState.height + 30; }
@@ -1009,7 +1036,6 @@ function spawnBoss() {
   GameState.fighters.push(boss);
   GameState.boss = boss;
   
-  // Show dramatic entrance text
   const enterX = Math.random() * (GameState.width - 400) + 200;
   showFloatingText(enterX, 100, '>>> BOSS INCOMING <<<', '#f00');
 }
@@ -1027,39 +1053,33 @@ function updateKOTHZone() {
 
     const zoneEl = document.createElement('div');
     zoneEl.className = 'koth-zone';
-    zoneEl.style.left = `${x - CONFIG.KOTH_ZONE_RADIUS}px`;
-    zoneEl.style.top = `${y - CONFIG.KOTH_ZONE_RADIUS}px`;
-    zoneEl.style.width = `${CONFIG.KOTH_ZONE_RADIUS * 2}px`;
-    zoneEl.style.height = `${CONFIG.KOTH_ZONE_RADIUS * 2}px`;
+    zoneEl.style.left = (x - CONFIG.KOTH_ZONE_RADIUS) + 'px';
+    zoneEl.style.top = (y - CONFIG.KOTH_ZONE_RADIUS) + 'px';
+    zoneEl.style.width = (CONFIG.KOTH_ZONE_RADIUS * 2) + 'px';
+    zoneEl.style.height = (CONFIG.KOTH_ZONE_RADIUS * 2) + 'px';
     GameState.container.appendChild(zoneEl);
     GameState.kothZone.element = zoneEl;
   }
 
-  // Award KOTH points only to players (exclude Zephyr).
   if (GameState.kothZone) {
     for (const f of GameState.fighters) {
       if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
       const d = distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y);
       if (d <= CONFIG.KOTH_ZONE_RADIUS) {
         const pdata = getPlayerData(f.username);
-        // points per second scaled by dt in loop; here we tick coarse in stats update, so drip modestly
-        pdata.points += CONFIG.KOTH_POINTS_PER_SEC * 0.5; // ~every loop cycle it adds small amount
+        pdata.points += CONFIG.KOTH_POINTS_PER_SEC * 0.5;
       }
     }
   }
 }
 
-// =====================
-// LEADERBOARD & STATS
-// =====================
 function updateLeaderboard() {
   const leaderboard = document.getElementById('leaderboard');
   const players = Object.values(GameState.playerData)
-    .filter(p => !isZephyr(p.username)) // exclude Zephyr from scoring
+    .filter(p => !isZephyr(p.username))
     .sort((a, b) => Math.floor(b.points) - Math.floor(a.points))
     .slice(0, 10);
 
-  // Clear existing entries except header
   while (leaderboard.children.length > 1) {
     leaderboard.children[1].remove();
   }
@@ -1104,34 +1124,41 @@ function updateStats() {
   document.getElementById('kill-count').textContent = GameState.stats.kills;
 }
 
-// =====================
-// GAME LOOP
-// =====================
+// ============================================================================
+// SECTION 10: FINAL - INITIALIZATION & GAME LOOP
+// ============================================================================
+
 function gameLoop() {
   const now = performance.now();
   const dt = Math.min((now - GameState.lastUpdate) / 1000, 0.08);
   GameState.lastUpdate = now;
 
+  // Update all entities
   for (const fighter of GameState.fighters.slice()) fighter.update(dt);
   for (const proj of GameState.projectiles.slice()) proj.update(dt);
   for (const ammo of GameState.ammo.slice()) ammo.update(dt);
 
+  // Spawn AI enemies periodically
   if (now - GameState.lastAISpawn > CONFIG.AI_SPAWN_INTERVAL) {
     spawnAIEnemy();
     GameState.lastAISpawn = now;
   }
 
+  // Check if Zephyr should respawn (every second)
+  if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
+    checkZephyrRespawn();
+  }
+
+  // Update KOTH zone
   updateKOTHZone();
   updateStats();
 
+  // Update leaderboard every 2.5 seconds
   if (Math.floor(now / 2500) !== Math.floor((now - dt * 1000) / 2500)) updateLeaderboard();
 
   requestAnimationFrame(gameLoop);
 }
 
-// =====================
-// TEST MODE & INIT
-// =====================
 function spawnTestFighters() {
   const testNames = ['TestWarrior','TestMage','TestRogue','TestTank','TestRanger','TestHealer'];
   const name = testNames[Math.floor(Math.random() * testNames.length)] + Math.floor(Math.random() * 100);
@@ -1141,29 +1168,45 @@ function spawnTestFighters() {
   for (let i = 0; i < 2; i++) message.push(testWords[Math.floor(Math.random() * testWords.length)]);
   spawnAmmo(name, message.join(' '));
   addChatLine(name, message.join(' '));
-  console.log("[TEST] Spawned:", name, f.color);
+  console.log('[TEST] Spawned:', name, f.color);
 }
 
-// Always spawn Zephyr as persistent anchor
 function spawnZephyr() {
-  const z = new Fighter("Zephyr", false, false);
+  // Don't respawn if already alive
+  if (GameState.zephyr && GameState.zephyr.alive) return GameState.zephyr;
+  
+  // Check if respawn cooldown is active
+  if (GameState.zephyrRespawnTime && Date.now() < GameState.zephyrRespawnTime) {
+    const remainingMin = Math.ceil((GameState.zephyrRespawnTime - Date.now()) / 60000);
+    console.log('[Zephyr] Respawn in ' + remainingMin + ' minutes');
+    return null;
+  }
+  
+  const z = new Fighter('Zephyr', false, false);
   z.x = GameState.width / 2;
-  z.y = GameState.height - 80;     // bottom-center anchor
-  z.color = "#0ff";                // cyan beacon
-  z.ascii = "@";                   // distinct hero glyph
-  z.weaponType = "wand";           // gentle heal pulses
-  z.attackCooldown = 2200;         // faster support cadence
+  z.y = GameState.height - 80;
+  z.color = '#0ff';
+  z.ascii = '@';
+  z.weaponType = 'wand';
+  z.attackCooldown = 1600; // Faster healing
   GameState.fighters.push(z);
-  GameState.playerData["Zephyr"] = getPlayerData("Zephyr"); // ensures points=0 and excluded
+  GameState.zephyr = z;
+  GameState.zephyrRespawnTime = null; // Clear respawn timer
+  GameState.playerData['Zephyr'] = getPlayerData('Zephyr');
+  showFloatingText(GameState.width / 2, 100, 'ZEPHYR HAS ARRIVED!', '#0ff');
   return z;
 }
 
-window.addEventListener('resize', () => {
-  GameState.width = window.innerWidth;
-  GameState.height = window.innerHeight;
-});
+function checkZephyrRespawn() {
+  // Check if Zephyr should respawn
+  if (!GameState.zephyr || !GameState.zephyr.alive) {
+    if (!GameState.zephyrRespawnTime || Date.now() >= GameState.zephyrRespawnTime) {
+      spawnZephyr();
+    }
+  }
+}
 
-// Initialize
+// Initialize game
 spawnZephyr();
 
 if (!CONFIG.TEST_MODE) {
@@ -1177,7 +1220,6 @@ if (!CONFIG.TEST_MODE) {
 gameLoop();
 
 if (CONFIG.TEST_MODE) {
-  // Test alerts on startup
   setTimeout(() => {
     showEventAlert('=== TEST MODE ACTIVE ===', 'Game is running! Fighters will spawn shortly.', '#fa0');
   }, 1000);
@@ -1187,7 +1229,6 @@ if (CONFIG.TEST_MODE) {
     setInterval(spawnTestFighters, 20000);
   }, 2000);
   
-  // Test different alerts periodically
   setTimeout(() => {
     showEventAlert('*** NEW FOLLOWER ***', 'TestUser123 just followed the stream!', '#0ff');
   }, 25000);
