@@ -171,6 +171,15 @@ body {
 <body>
 <div id="game-container"></div>
 
+<!-- Event Alert Display (15-second notifications) -->
+<div id="event-alert" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+  background: rgba(0,0,0,0.95); border: 3px solid #0ff; color: #0ff; padding: 20px 30px; 
+  font-size: 18px; z-index: 9999; display: none; text-align: center; border-radius: 8px; 
+  box-shadow: 0 0 20px #0ff; min-width: 400px; max-width: 600px;">
+  <div id="alert-title" style="font-size: 24px; font-weight: bold; margin-bottom: 10px;"></div>
+  <div id="alert-message" style="font-size: 16px;"></div>
+</div>
+
 <div id="stats-panel">
   <h3>> BATTLE STATS</h3>
   <div class="stat-row"><span>Players:</span><span class="stat-value" id="player-count">0</span></div>
@@ -446,8 +455,10 @@ class Fighter {
     this.vx = 0;
     this.vy = 0;
     this.lastAttack = 0;
-    this.attackCooldown = isZephyr(username) ? 2200 : 2500; // Zephyr heals more responsively
+    this.attackCooldown = isZephyr(username) ? 1600 : 1800; // Faster attacks for more action
+    this.baseAttackCooldown = this.attackCooldown;
     this.statusEffects = [];
+    this.isRaging = false; // Rage state when in KOTH zone
 
     this.anchorX = GameState.width / 2;  // for Zephyr's home anchor
     this.anchorY = GameState.height - 80;
@@ -510,6 +521,19 @@ ${line4}`;
 
   update(dt) {
     if (!this.alive) return;
+
+    // Check if in KOTH zone for RAGE boost
+    if (GameState.kothZone && !this.isEnemy) {
+      const distToZone = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
+      this.isRaging = distToZone <= CONFIG.KOTH_ZONE_RADIUS;
+      // RAGE: 50% faster attacks when in the zone!
+      this.attackCooldown = this.isRaging ? this.baseAttackCooldown * 0.5 : this.baseAttackCooldown;
+      if (this.isRaging) {
+        this.element.style.textShadow = '0 0 10px #ff0, 0 0 15px #f80'; // Rage glow
+      } else {
+        this.element.style.textShadow = '0 0 3px currentColor';
+      }
+    }
 
     for (const effect of this.statusEffects) {
       if (effect === 'fire') this.hp -= CONFIG.HEALTH_DECAY_RATE * dt;
@@ -610,12 +634,12 @@ ${line4}`;
 
   updateEnemyAI(dt) {
     // Allied enemies: descend and target any non-enemy (players + Zephyr)
-    this.y += 18 * dt;
+    this.y += 15 * dt;
 
     if (this.y > GameState.height + 50) { this.destroy(); return; }
 
     let target = null;
-    let minDist = 220;
+    let minDist = 300; // Increased detection range
     for (const f of GameState.fighters) {
       if (!f.alive || f.isEnemy) continue;
       const dist = distance(this.x, this.y, f.x, f.y);
@@ -624,10 +648,13 @@ ${line4}`;
 
     if (target) {
       const dx = target.x - this.x;
-      const dist = Math.sqrt(dx*dx + (target.y - this.y) ** 2) || 1;
-      this.vx = (dx / dist) * this.speed * 0.45;
+      const dy = target.y - this.y;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      // Move toward target more aggressively
+      this.vx = (dx / dist) * this.speed * 0.6;
+      this.vy = (dy / dist) * this.speed * 0.4;
       const now = performance.now();
-      if (now - this.lastAttack > this.attackCooldown && dist < 160) {
+      if (now - this.lastAttack > this.attackCooldown && dist < 220) {
         this.attackTarget(target);
         this.lastAttack = now;
       }
@@ -639,9 +666,9 @@ ${line4}`;
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      if (target.isAmmo || dist > 160) {
-        this.vx = (dx / dist) * this.speed;
-        this.vy = (dy / dist) * this.speed;
+      if (target.isAmmo || dist > 200) {
+        this.vx = (dx / dist) * this.speed * 0.85;
+        this.vy = (dy / dist) * this.speed * 0.85;
       } else {
         this.vx *= 0.85; this.vy *= 0.85;
         const now = performance.now();
@@ -813,17 +840,67 @@ function handleStreamlabsEvent(data) {
     for (const msg of messages) {
       const username = msg.name || msg.from || 'Viewer';
       const text = msg.message || "";
-      spawnPlayer(username);
-      if (text && text.length > 0) {
-        spawnAmmo(username, text);
-        addChatLine(username, text);
+      const eventSubType = msg.type || '';
+      
+      // Show 15-second alert for significant events
+      if (eventSubType === 'follow') {
+        showEventAlert('🎉 NEW FOLLOWER! 🎉', `${username} just followed the stream!`, '#0ff');
+        spawnPlayer(username);
+        spawnAmmo(username, 'WELCOME FOLLOW THANKS AWESOME');
+      } else if (eventSubType === 'subscription' || eventSubType === 'resub') {
+        showEventAlert('⭐ SUBSCRIBER! ⭐', `${username} subscribed to the channel!`, '#f0f');
+        spawnPlayer(username);
+        spawnAmmo(username, 'SUB HYPE LEGENDARY EPIC AMAZING THANKS');
+        // Extra enemies for more action
+        spawnAIEnemy();
+        spawnAIEnemy();
+      } else if (eventSubType === 'bits' || eventSubType === 'cheer') {
+        const amount = msg.amount || 0;
+        showEventAlert('💎 BITS CHEERED! 💎', `${username} cheered ${amount} bits!`, '#ff0');
+        spawnPlayer(username);
+        spawnAmmo(username, 'BITS ENERGY BOOST POWER HYPE');
+        spawnAIEnemy();
+      } else {
+        // Regular chat message
+        spawnPlayer(username);
+        if (text && text.length > 0) {
+          spawnAmmo(username, text);
+          addChatLine(username, text);
+        }
       }
     }
   }
 
   if (eventType === 'donation' || eventType === 'tip') {
+    const amount = eventData.amount || 0;
+    const username = eventData.name || eventData.from || 'Anonymous';
+    showEventAlert('💰 DONATION! 💰', `${username} donated $${amount}! BOSS INCOMING!`, '#0f0');
     spawnBoss();
+    spawnPlayer(username);
+    spawnAmmo(username, 'DONATION LEGENDARY EPIC AMAZING INCREDIBLE');
   }
+}
+
+// Show 15-second event alert in center of screen
+function showEventAlert(title, message, color) {
+  const alertBox = document.getElementById('event-alert');
+  const alertTitle = document.getElementById('alert-title');
+  const alertMessage = document.getElementById('alert-message');
+  
+  alertTitle.textContent = title;
+  alertMessage.textContent = message;
+  alertBox.style.borderColor = color;
+  alertBox.style.color = color;
+  alertBox.style.boxShadow = `0 0 20px ${color}`;
+  alertBox.style.display = 'block';
+  
+  // Pulse animation
+  alertBox.style.animation = 'pulse 0.6s ease-in-out 3';
+  
+  // Auto-hide after 15 seconds
+  setTimeout(() => {
+    alertBox.style.display = 'none';
+  }, 15000);
 }
 
 // =====================
@@ -988,182 +1065,25 @@ if (!CONFIG.TEST_MODE) {
 gameLoop();
 
 if (CONFIG.TEST_MODE) {
+  // Test alerts on startup
+  setTimeout(() => {
+    showEventAlert('🎮 TEST MODE ACTIVE 🎮', 'Game is running! Fighters will spawn shortly.', '#fa0');
+  }, 1000);
+  
   setTimeout(() => {
     spawnTestFighters();
     setInterval(spawnTestFighters, 20000);
   }, 2000);
+  
+  // Test different alerts periodically
+  setTimeout(() => {
+    showEventAlert('🎉 NEW FOLLOWER! 🎉', 'TestUser123 just followed the stream!', '#0ff');
+  }, 25000);
+  
+  setTimeout(() => {
+    showEventAlert('⭐ SUBSCRIBER! ⭐', 'TestSub456 subscribed to the channel!', '#f0f');
+  }, 50000);
 }
 </script>
 </body>
 </html>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>ASCII Battle Royale</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: transparent; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; }
-#game-container { position: relative; width: 100vw; height: 100vh; }
-
-.entity { position: absolute; font-size: 14px; white-space: pre; pointer-events: none; line-height: 1.2; font-weight: bold; text-shadow: 0 0 3px currentColor; }
-.projectile { position: absolute; font-size: 10px; pointer-events: none; white-space: nowrap; font-weight: bold; }
-.ammo-particle { position: absolute; font-size: 11px; color: #fa0; pointer-events: none; white-space: nowrap; text-shadow: 0 0 5px #fa0; }
-.damage-number { position: absolute; font-size: 13px; font-weight: bold; pointer-events: none; text-shadow: 0 0 5px currentColor; }
-
-#leaderboard {
-  position: fixed; bottom: 20px; right: 20px;
-  background: rgba(0,0,0,0.85); padding: 12px; border: 2px solid #333; font-size: 11px;
-  z-index: 1000; min-width: 240px; max-height: 300px; overflow-y: auto; border-radius: 4px;
-}
-#leaderboard h3 { color: #ff0; margin-bottom: 8px; font-size: 13px; text-shadow: 0 0 5px #ff0; }
-.leader-entry { color: #888; margin: 3px 0; display: flex; justify-content: space-between; }
-.leader-name { color: #0ff; }
-.leader-score { color: #f80; }
-
-#stats-panel {
-  position: fixed; top: 20px; left: 20px;
-  background: rgba(0,0,0,0.85); padding: 12px; border: 2px solid #333; font-size: 11px;
-  z-index: 1000; min-width: 220px; color: #888; border-radius: 4px;
-}
-#stats-panel h3 { color: #0f0; margin-bottom: 8px; font-size: 13px; text-shadow: 0 0 5px #0f0; }
-.stat-row { margin: 4px 0; display: flex; justify-content: space-between; }
-.stat-value { color: #0ff; font-weight: bold; }
-
-#connection-status {
-  position: fixed; top: 20px; right: 20px;
-  padding: 8px 12px; background: rgba(0,0,0,0.85); border: 2px solid #333; font-size: 11px;
-  z-index: 1000; color: #888; border-radius: 4px;
-}
-#connection-status.connected { color: #0f0; text-shadow: 0 0 5px #0f0; }
-
-.koth-zone { position: absolute; border: 2px dashed #ff0; border-radius: 50%; pointer-events: none; opacity: 0.25; }
-
-#chat-retainer {
-  position: fixed; bottom: 20px; right: 20px;  /* moved to bottom-right */
-  background: rgba(0,0,0,0.85);
-  padding: 10px; border: 2px solid #333; max-width: 350px; z-index: 999;
-  max-height: 140px; overflow: hidden; border-radius: 4px;
-}
-#chat-retainer pre { color: #0f0; margin-bottom: 5px; font-size: 11px; text-shadow: 0 0 5px #0f0; }
-.chat-line { color: #888; margin: 3px 0; font-size: 11px; white-space: pre; }
-
-#boss-alert {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  background: rgba(0,0,0,0.85); border: 2px solid #f00; color: #f00; padding: 10px;
-  font-size: 16px; white-space: pre; display: none; z-index: 2000;
-}
-</style>
-</head>
-<body>
-<div id="game-container"></div>
-
-<div id="stats-panel">
-  <h3>> BATTLE STATS</h3>
-  <div class="stat-row"><span>Players:</span><span class="stat-value" id="player-count">0</span></div>
-  <div class="stat-row"><span>AI:</span><span class="stat-value" id="ai-count">0</span></div>
-  <div class="stat-row"><span>Active:</span><span class="stat-value" id="total-fighters">0</span></div>
-  <div class="stat-row"><span>Ammo:</span><span class="stat-value" id="ammo-count">0</span></div>
-  <div class="stat-row"><span>Defeated:</span><span class="stat-value" id="kill-count">0</span></div>
-</div>
-
-<div id="leaderboard"><h3>* TOP FIGHTERS</h3></div>
-<div id="connection-status" class="disconnected">Connecting ...</div>
-
-<div id="chat-retainer">
-  <pre>. CHAT</pre>
-</div>
-
-<div id="boss-alert"></div>
-
-<script>
-// =====================
-// CONFIG
-// =====================
-const CONFIG = {
-  SOCKET_TOKEN: "", ACCESS_TOKEN: "", TEST_MODE: true,
-  KNOCKBACK_STRENGTH: 22,
-  AMMO_LIFETIME: 25000,
-  HEALTH_DECAY_RATE: 0.1,
-  AI_SPAWN_INTERVAL: 20000,
-  KOTH_ZONE_RADIUS: 80,          // smaller
-  KOTH_MOVE_INTERVAL: 10000,     // moves more frequently
-  KOTH_POINTS_PER_SEC: 4,        // make KOTH the main scoring
-  XP_CURVE: [0,100,250,450,700,1000,1400,1900,2500,3200],
-  RAGE_ATTACK_BOOST: 1.25,       // speed boost inside KOTH
-};
-
-// =====================
-// DATA
-// =====================
-const ARCHETYPES = {
-  warrior:{ascii:"X",hp:80,atk:8,spd:30,weapon:"sword"},
-  mage:{ascii:"*",hp:50,atk:12,spd:25,weapon:"staff"},
-  rogue:{ascii:">",hp:60,atk:10,spd:40,weapon:"dagger"},
-  tank:{ascii:"#",hp:120,atk:5,spd:20,weapon:"hammer"},
-  ranger:{ascii:"1",hp:65,atk:9,spd:35,weapon:"bow"},
-  healer:{ascii:"+",hp:55,atk:3,spd:28,weapon:"wand"},
-};
-const WEAPONS = {
-  sword:{projectile:"-",damage:8,speed:110,color:"#f88"},
-  staff:{projectile:"+",damage:12,speed:95,color:"#88f"},
-  dagger:{projectile:">",damage:9,speed:130,color:"#8f8"},
-  hammer:{projectile:".",damage:7,speed:80,color:"#aaa"},
-  bow:{projectile:"->",damage:10,speed:120,color:"#af8"},
-  wand:{projectile:"+",damage:-10,speed:110,color:"#0f8"}, // heal
-};
-
-// =====================
-// STATE
-// =====================
-const GameState = {
-  fighters: [], projectiles: [], ammo: [],
-  container: document.getElementById('game-container'),
-  width: window.innerWidth, height: window.innerHeight,
-  playerData: {}, chatMessages: [], boss: null,
-  kothZone: null, kothZoneEl: null, lastKOTHMove: 0,
-  stats: { kills: 0 }, lastUpdate: performance.now(),
-};
-
-// =====================
-// UTILS
-// =====================
-function hashUsername(u){let h=0; for(let i=0;i<u.length;i++){h=((h<<5)-h)+u.charCodeAt(i); h|=0;} return Math.abs(h);}
-function getColorForUser(u){const hue = hashUsername(u)%360; return `hsl(${hue},80%,60%)`;}
-function getArchetypeForUser(u){const keys=Object.keys(ARCHETYPES); return keys[hashUsername(u)%keys.length];}
-function distance(x1,y1,x2,y2){return Math.sqrt((x2-x1)**2 + (y2-y1)**2);}
-function isZephyr(u){return u==="Zephyr";}
-function showFloatingText(x,y,text,color){
-  const el=document.createElement('div'); el.className='damage-number'; el.textContent=text;
-  el.style.color=color; el.style.left=`${x}px`; el.style.top=`${y}px`;
-  GameState.container.appendChild(el); setTimeout(()=>el.remove(),1600);
-}
-function getPlayerData(username){
-  if(!GameState.playerData[username]){
-    GameState.playerData[username]={username,
-      archetype: isZephyr(username)?"healer":getArchetypeForUser(username),
-      level:1,xp:0,kills:0,deaths:0,points:0
-    };
-  }
-  return GameState.playerData[username];
-}
-
-// =====================
-// AMMO
-// =====================
-class Ammo {
-  constructor(word,x,y){
-    this.word=word; this.x=(typeof x==='number'?x:Math.random()*GameState.width);
-    this.y=(typeof y==='number'?y:Math.random()*GameState.height);
-    this.collected=false; this.spawnTime=Date.now();
-    this.el=document.createElement('div'); this.el.className='ammo-particle';
-    this.el.textContent=this.word; this.el.style.left=`${this.x}px`; this.el.style.top=`${this.y}px`;
-    GameState.container.appendChild(this.el);
-  }
-  update(dt){
-    if(this.collected) return;
-    if(Date.now()-this.spawnTime>CONFIG.AMMO_LIFETIME){this.destroy(); return;}
-    for(const f of GameState.fighters){
-      if(!f.alive) continue;
-      if(distance(f.x,f.y,this.x,this.y)<35){ f.collectAmmo(this.word); this.destroy(); break; }
