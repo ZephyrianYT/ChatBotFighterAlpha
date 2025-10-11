@@ -3,7 +3,31 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ASCII Battle Royale</title>
+<title>ASCII Battle Royale - Stream Overlay</title>
+<!-- 
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                        ASCII BATTLE ROYALE v2.0                               ║
+║                    Twitch/Streamlabs Chat Battle Game                         ║
+║                     Lightweight 1920x1080 Overlay                             ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+FEATURES:
+  • Chat Integration - Viewers type to spawn heroes
+  • Seed-Based Generation - 64 unique builds from username hash
+  • Lethal Combat - 1-2 shot kills (17-38 HP, 12-23 ATK)
+  • Dual Weapons - Ranged projectile + melee weapon
+  • Status Effects - Fire, Ice, Poison, Lightning, Stun, Slow
+  • KOTH Zone - King of the Hill for points and rewards
+  • Leaderboard - Top 10 by points (kills + damage + KOTH)
+  • Stream-Safe - Center area fades/avoids for gameplay visibility
+  • Streamlabs Events - Follows/Subs/Bits spawn bosses and ammo
+  • Zephyr Healer - Auto-respawning support character
+
+REQUIREMENTS:
+  • Streamlabs Socket API Token
+  • OBS Browser Source (1920x1080)
+  • See README.md for setup instructions
+-->
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -221,13 +245,27 @@ body {
 
 <script>
 
-// ============================================================================
-// SECTION 1: LOGIN & CREDENTIALS
-// ============================================================================
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                     SECTION 1: LOGIN & CREDENTIALS                        ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+// 
+// PURPOSE: Configure Streamlabs integration and test mode
+// 
+// SETUP INSTRUCTIONS:
+//   1. Get Socket Token from: https://streamlabs.com/dashboard#/settings/api-settings
+//   2. Paste token in SOCKET_TOKEN below
+//   3. Set TEST_MODE to false for production
+//   4. Save and refresh OBS browser source
+//
 const CONFIG = {
-  // Streamlabs Socket Token - Add your token here for production
+  // === STREAMLABS AUTHENTICATION ===
+  // Get your token from Streamlabs Dashboard > API Settings > Socket API Token
   SOCKET_TOKEN: "",
   ACCESS_TOKEN: "",
+  
+  // === TEST MODE ===
+  // true = Spawns test heroes and enemies automatically (for debugging)
+  // false = Only spawns from real chat/events (for production)
   TEST_MODE: true,
   
   // Game Balance
@@ -253,27 +291,39 @@ const CONFIG = {
   XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
 };
 
-// ============================================================================
-// SECTION 2: GAME MODE & ASSOCIATED SETTINGS
-// ============================================================================
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                  SECTION 2: GAME STATE & DATA STRUCTURES                  ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+//
+// PURPOSE: Central game state object - holds all active entities and metadata
+//
 const GameState = {
-  fighters: [],
-  projectiles: [],
-  ammo: [],
+  // === ENTITY ARRAYS ===
+  fighters: [],              // All active fighters (players, enemies, bosses, Zephyr)
+  projectiles: [],           // All active projectiles
+  ammo: [],                  // All active ammo pickups
+  
+  // === DOM & DIMENSIONS ===
   container: document.getElementById('game-container'),
-  width: window.innerWidth,
-  height: window.innerHeight,
-  playerData: {},
-  chatMessages: [],
-  boss: null,
-  kothZone: null,
-  lastAISpawn: 0,
-  lastKOTHMove: 0,
-  stats: { kills: 0 },
-  lastUpdate: performance.now(),
-  zephyrRespawnTime: null, // Track when Zephyr can respawn
-  zephyr: null, // Reference to Zephyr
-  playerRespawnTimes: {}, // Track when each player can respawn (username: timestamp)
+  width: window.innerWidth,  // 1920 for standard overlay
+  height: window.innerHeight, // 1080 for standard overlay
+  
+  // === PLAYER TRACKING ===
+  playerData: {},            // { username: { kills, deaths, points, xp, level, archetype } }
+  playerRespawnTimes: {},    // { username: timestamp } - 10-minute cooldowns
+  chatMessages: [],          // Recent chat history
+  
+  // === SPECIAL ENTITIES ===
+  boss: null,                // Current boss reference
+  zephyr: null,              // Zephyr healer reference
+  zephyrRespawnTime: null,   // When Zephyr can respawn (15-min cooldown)
+  kothZone: null,            // KOTH zone reference { x, y, lastMove }
+  
+  // === GAME STATS ===
+  lastAISpawn: 0,            // Timestamp of last AI spawn
+  lastKOTHMove: 0,           // Timestamp of last KOTH relocation
+  stats: { kills: 0 },       // Global statistics
+  lastUpdate: performance.now(), // For delta time calculation
 };
 
 window.addEventListener('resize', () => {
@@ -1133,9 +1183,27 @@ const STATUS_VISUALS = {
   heal:   { color: '#0f8', symbol: '♥', glow: '0 0 8px #0f8' },
 };
 
-// ============================================================================
-// SECTION 6: PALETTE SEED & COLOR GENERATION
-// ============================================================================
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║              SECTION 6: SEED GENERATION & PLAYER DATA                     ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+//
+// PURPOSE: Hash usernames to generate consistent builds and track player stats
+//
+// SEED SYSTEM:
+//   Username → hashUsername() → Seed (0-63) → Archetype Index
+//   Same username = same build every time!
+//
+// PLAYER DATA STRUCTURE:
+//   {
+//     username: string,
+//     archetypeIndex: number (0-63),
+//     level: number (1-10),
+//     xp: number,
+//     kills: number,
+//     deaths: number,
+//     points: number (kills + damage + KOTH)
+//   }
+//
 
 function hashUsername(username) {
   let hash = 0;
@@ -1546,9 +1614,29 @@ function updateStats() {
   document.getElementById('kill-count').textContent = GameState.stats.kills;
 }
 
-// ============================================================================
-// SECTION 10: FINAL - INITIALIZATION & GAME LOOP
-// ============================================================================
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║              SECTION 10: GAME LOOP, INIT, AND TEST MODE                   ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+//
+// PURPOSE: Main game loop, initialization, and test mode setup
+//
+// GAME LOOP (60 FPS):
+//   1. Calculate delta time
+//   2. Update all fighters (AI, movement, combat, status effects)
+//   3. Update all projectiles (movement, collision)
+//   4. Update ammo pickups (collection)
+//   5. Update KOTH zone (points, regen, relocation)
+//   6. Update leaderboard UI
+//   7. Check Zephyr respawn
+//   8. Cleanup old entities
+//
+// TEST MODE:
+//   • Spawns 2 test heroes (left vs right)
+//   • Spawns enemies from top every 10 seconds
+//   • Spawns Zephyr healer at bottom
+//   • Spawns test ammo pickups
+//   • Useful for debugging without Streamlabs
+//
 
 function gameLoop() {
   const now = performance.now();
