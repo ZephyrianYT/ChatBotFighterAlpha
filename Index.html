@@ -440,11 +440,30 @@ class Fighter {
     this.statusEffects = [];
     this.isRaging = false;
 
+    // PERSONALITY TRAITS - makes fighters unique and active!
+    this.personality = this.assignPersonality();
+    this.behaviorTimer = 0;
+    this.currentBehavior = 'aggressive';
+    this.lastBehaviorChange = 0;
+
     this.anchorX = GameState.width / 2;
     this.anchorY = GameState.height - 80;
 
     this.spawnPosition();
     this.createElement();
+  }
+
+  assignPersonality() {
+    const rand = Math.random();
+    if (this.isEnemy) {
+      return rand > 0.7 ? 'aggressive' : (rand > 0.4 ? 'determined' : 'hunter');
+    }
+    // Players get varied personalities
+    if (rand > 0.8) return 'aggressive';      // 20% - Always attacking
+    if (rand > 0.6) return 'greedy';          // 20% - Wants points/ammo
+    if (rand > 0.4) return 'tactical';        // 20% - Smart positioning
+    if (rand > 0.2) return 'determined';      // 20% - Focused on KOTH
+    return 'survivor';                         // 20% - Cautious but fights
   }
 
   spawnPosition() {
@@ -552,50 +571,115 @@ class Fighter {
   }
 
   updatePlayerAI(dt) {
-    // Players: collect ammo, seek KOTH, fight enemies AND other players (PvP enabled)
+    // Dynamic behavior based on personality and situation
+    const now = performance.now();
+    const hpPct = this.hp / this.maxHp;
+    
+    // Change behavior dynamically based on situation
+    if (now - this.lastBehaviorChange > 3000) {
+      if (hpPct < 0.3 && this.personality !== 'aggressive') {
+        this.currentBehavior = 'fleeing'; // Low HP = run!
+      } else if (this.ammoCount < 1) {
+        this.currentBehavior = 'collecting'; // Need resources!
+      } else if (hpPct > 0.7 && this.ammoCount > 3) {
+        this.currentBehavior = this.personality; // Use personality
+      }
+      this.lastBehaviorChange = now;
+    }
+    
     let target = null;
     let minDist = Infinity;
+    const searchRange = this.currentBehavior === 'aggressive' ? 600 : 450;
 
-    // Priority 1: Collect ammo if low
-    if (this.ammoCount < 2) {
+    // BEHAVIOR: FLEEING - run from enemies, seek Zephyr
+    if (this.currentBehavior === 'fleeing' && hpPct < 0.4) {
+      // Run toward Zephyr if exists
+      if (GameState.zephyr && GameState.zephyr.alive) {
+        const dist = distance(this.x, this.y, GameState.zephyr.x, GameState.zephyr.y);
+        if (dist > 80) {
+          target = { x: GameState.zephyr.x, y: GameState.zephyr.y, isFlee: true };
+          this.moveAndAttack(target);
+          return;
+        }
+      }
+      // Otherwise run from nearest enemy
+      let nearestEnemy = null;
+      let minEnemyDist = 300;
+      for (const f of GameState.fighters) {
+        if (!f.alive || !f.isEnemy) continue;
+        const dist = distance(this.x, this.y, f.x, f.y);
+        if (dist < minEnemyDist) { minEnemyDist = dist; nearestEnemy = f; }
+      }
+      if (nearestEnemy) {
+        // Run opposite direction
+        const dx = this.x - nearestEnemy.x;
+        const dy = this.y - nearestEnemy.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx = (dx / d) * this.speed * 1.2;
+        this.vy = (dy / d) * this.speed * 1.2;
+        return;
+      }
+    }
+
+    // BEHAVIOR: COLLECTING - prioritize ammo
+    if ((this.currentBehavior === 'collecting' || this.currentBehavior === 'greedy' || this.ammoCount < 2) && GameState.ammo.length > 0) {
       for (const ammo of GameState.ammo) {
         if (ammo.collected) continue;
         const dist = distance(this.x, this.y, ammo.x, ammo.y);
-        if (dist < 280 && dist < minDist) {
+        if (dist < 400 && dist < minDist) {
           minDist = dist;
           target = { x: ammo.x, y: ammo.y, isAmmo: true };
         }
       }
+      if (target) {
+        this.moveAndAttack(target);
+        return;
+      }
     }
 
-    // Priority 2: Seek KOTH zone and fight there (PvP + enemies)
-    if (!target && this.ammoCount > 0 && GameState.kothZone) {
+    // BEHAVIOR: DETERMINED/GREEDY - rush KOTH for points
+    if ((this.currentBehavior === 'determined' || this.currentBehavior === 'greedy') && GameState.kothZone && this.ammoCount > 0) {
       const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
-      
-      // Move toward KOTH if not there yet
       if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS) {
         target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
-        minDist = distToKOTH;
+        this.moveAndAttack(target);
+        return;
       }
-      
-      // Find fighters to attack (enemies prioritized, but PvP enabled)
+    }
+
+    // BEHAVIOR: AGGRESSIVE/TACTICAL/SURVIVOR - find and attack
+    if (this.ammoCount > 0) {
       for (const f of GameState.fighters) {
         if (!f.alive || f === this) continue;
-        if (isZephyr(f.username)) continue; // Don't attack the healer
+        if (isZephyr(f.username)) continue;
         
         const dist = distance(this.x, this.y, f.x, f.y);
-        const distFighterToKOTH = GameState.kothZone ? distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y) : 999;
+        if (dist > searchRange) continue;
         
-        // Enemies are priority 1, other players are priority 1.5 (close preference)
-        // This enables full PvP - players will fight each other!
-        const isPreferred = f.isEnemy ? 1.0 : 1.5;
-        const kothBonus = distFighterToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5 ? 0.5 : 1;
-        const score = dist * isPreferred * kothBonus;
+        // Calculate target priority
+        const isEnemy = f.isEnemy;
+        const targetHP = f.hp / f.maxHp;
+        const targetAmmo = f.ammoCount || 0;
         
-        if (score < minDist * 0.8) { 
-          minDist = score; 
-          target = f; 
+        let priority = 1.0;
+        if (isEnemy) priority = 0.8; // Enemies slightly preferred
+        if (this.currentBehavior === 'aggressive') priority *= 0.7; // More aggressive
+        if (this.currentBehavior === 'tactical' && targetHP < 0.5) priority *= 0.6; // Target weak
+        if (this.currentBehavior === 'survivor' && targetAmmo < 2) priority *= 0.7; // Pick easy fights
+        
+        const score = dist * priority;
+        if (score < minDist) {
+          minDist = score;
+          target = f;
         }
+      }
+    }
+
+    // If no target, move toward KOTH or patrol
+    if (!target && GameState.kothZone) {
+      const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
+      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS + 100) {
+        target = { x: GameState.kothZone.x, y: GameState.kothZone.y, isKOTH: true };
       }
     }
 
@@ -642,42 +726,69 @@ class Fighter {
   }
 
   updateEnemyAI(dt) {
+    // Enemies are ALWAYS aggressive - constant threat!
     if (this.y > GameState.height + 50) { this.destroy(); return; }
 
     let target = null;
-    let minDist = 350;
+    let minDist = 500; // Larger detection range
     
-    if (GameState.kothZone) {
-      const distToKOTH = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
-      
-      if (distToKOTH > CONFIG.KOTH_ZONE_RADIUS * 1.2) {
-        const dx = GameState.kothZone.x - this.x;
-        const dy = GameState.kothZone.y - this.y;
-        const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        this.vx += (dx / d) * this.speed * 0.3;
-        this.vy += (dy / d) * this.speed * 0.3;
-      }
-    }
-    
+    // AGGRESSIVE: Always hunting for targets
     for (const f of GameState.fighters) {
       if (!f.alive || f.isEnemy) continue;
       const dist = distance(this.x, this.y, f.x, f.y);
-      const distFighterToKOTH = GameState.kothZone ? distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y) : 999;
-      const kothBonus = distFighterToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5 ? 0.6 : 1;
-      const score = dist * kothBonus;
-      if (score < minDist) { minDist = score; target = f; }
+      
+      // Prioritize different targets based on enemy personality
+      let priority = 1.0;
+      if (this.personality === 'aggressive') {
+        // Target anyone nearby
+        priority = 0.9;
+      } else if (this.personality === 'hunter') {
+        // Target low HP players
+        const hpPct = f.hp / f.maxHp;
+        if (hpPct < 0.5) priority = 0.6; // Strong preference for wounded
+      } else if (this.personality === 'determined') {
+        // Target players in KOTH
+        if (GameState.kothZone) {
+          const distToKOTH = distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y);
+          if (distToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5) priority = 0.7;
+        }
+      }
+      
+      const score = dist * priority;
+      if (score < minDist) {
+        minDist = score;
+        target = f;
+      }
     }
 
     if (target) {
+      // Chase target aggressively
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      this.vx += (dx / dist) * this.speed * 0.5;
-      this.vy += (dy / dist) * this.speed * 0.5;
+      this.vx += (dx / dist) * this.speed * 0.7; // More aggressive movement
+      this.vy += (dy / dist) * this.speed * 0.7;
+      
       const now = performance.now();
-      if (now - this.lastAttack > this.attackCooldown && dist < 240) {
+      if (now - this.lastAttack > this.attackCooldown && dist < 280) {
         this.attackTarget(target);
         this.lastAttack = now;
+      }
+    } else {
+      // No target? Move toward KOTH zone to create conflict
+      if (GameState.kothZone) {
+        const dx = GameState.kothZone.x - this.x;
+        const dy = GameState.kothZone.y - this.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx += (dx / d) * this.speed * 0.5;
+        this.vy += (dy / d) * this.speed * 0.5;
+      } else {
+        // Patrol toward center if no KOTH
+        const dx = GameState.width / 2 - this.x;
+        const dy = GameState.height / 2 - this.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx += (dx / d) * this.speed * 0.3;
+        this.vy += (dy / d) * this.speed * 0.3;
       }
     }
   }
@@ -688,22 +799,40 @@ class Fighter {
       const dy = target.y - this.y;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
       
-      if (target.isAmmo) {
-        this.vx = (dx / dist) * this.speed * 0.85;
-        this.vy = (dy / dist) * this.speed * 0.85;
+      if (target.isFlee) {
+        // Fleeing - move toward safety (Zephyr)
+        this.vx = (dx / dist) * this.speed * 1.1;
+        this.vy = (dy / dist) * this.speed * 1.1;
+      } else if (target.isAmmo) {
+        // Collect ammo urgently
+        this.vx = (dx / dist) * this.speed * 0.95;
+        this.vy = (dy / dist) * this.speed * 0.95;
       } else if (target.isKOTH) {
+        // Move toward KOTH zone
         if (dist > CONFIG.KOTH_ZONE_RADIUS) {
-          this.vx = (dx / dist) * this.speed * 0.7;
-          this.vy = (dy / dist) * this.speed * 0.7;
+          this.vx = (dx / dist) * this.speed * 0.8;
+          this.vy = (dy / dist) * this.speed * 0.8;
         } else {
-          this.vx *= 0.85;
-          this.vy *= 0.85;
+          // In KOTH, patrol around it
+          this.vx *= 0.8;
+          this.vy *= 0.8;
+          // Add slight circular motion in KOTH
+          this.vx += -dy * 0.02;
+          this.vy += dx * 0.02;
         }
-      } else if (dist > 200) {
-        this.vx = (dx / dist) * this.speed * 0.85;
-        this.vy = (dy / dist) * this.speed * 0.85;
+      } else if (dist > 250) {
+        // Chase target aggressively
+        const speedMult = this.currentBehavior === 'aggressive' ? 1.0 : 0.9;
+        this.vx = (dx / dist) * this.speed * speedMult;
+        this.vy = (dy / dist) * this.speed * speedMult;
+      } else if (dist > 180) {
+        // Closing in - strafe while approaching
+        this.vx = (dx / dist) * this.speed * 0.8 + -dy * 0.15;
+        this.vy = (dy / dist) * this.speed * 0.8 + dx * 0.15;
       } else {
-        this.vx *= 0.85; this.vy *= 0.85;
+        // In range, attack while moving!
+        this.vx = (dx / dist) * this.speed * 0.4;
+        this.vy = (dy / dist) * this.speed * 0.4;
         const now = performance.now();
         if (now - this.lastAttack > this.attackCooldown && this.ammoCount > 0) {
           this.attackTarget(target);
@@ -711,7 +840,17 @@ class Fighter {
         }
       }
     } else {
-      this.vx *= 0.9; this.vy *= 0.9;
+      // No target - patrol toward action instead of stopping!
+      if (GameState.kothZone) {
+        const dx = GameState.kothZone.x - this.x;
+        const dy = GameState.kothZone.y - this.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx += (dx / d) * this.speed * 0.3;
+        this.vy += (dy / d) * this.speed * 0.3;
+      } else {
+        this.vx *= 0.92;
+        this.vy *= 0.92;
+      }
     }
   }
 
