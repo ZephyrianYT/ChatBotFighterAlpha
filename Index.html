@@ -1,19 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>ASCII Battle Royale</title>
 <style>
+/* =========================================================
+   GLOBAL STYLES - Transparent HUD, ASCII vibe
+   ========================================================= */
 * { margin: 0; padding: 0; box-sizing: border-box; }
-
 body {
   background: transparent;
-  color: #00ff00;
+  color: #0f0;
   font-family: 'Courier New', monospace;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
-
 #game-container {
   position: relative;
   width: 100vw;
@@ -21,235 +24,277 @@ body {
   background: transparent;
 }
 
-/* HUD */
-#stats-panel {
-  position: fixed; top: 20px; left: 20px;
-  background: rgba(0,0,0,0.85);
-  padding: 12px;
-  border: 2px solid #333;
+/* =========================================================
+   HUD PANELS
+   ========================================================= */
+.panel {
+  position: fixed;
+  padding: 8px 10px;
   font-size: 11px;
   z-index: 1000;
-  min-width: 220px;
-  color: #888;
-  border-radius: 4px;
+  border: 1px solid #080;
+  background: rgba(0, 0, 0, 0.25);
 }
-#stats-panel h3 {
-  color: #0f0;
-  margin-bottom: 8px;
-  font-size: 13px;
-  text-shadow: 0 0 5px #0f0;
-}
-.stat-row { margin: 4px 0; display: flex; justify-content: space-between; }
-.stat-value { color: #0ff; font-weight: bold; }
 
-#leaderboard {
-  position: fixed; bottom: 20px; right: 20px;
-  background: rgba(0,0,0,0.85);
-  padding: 12px;
-  border: 2px solid #333;
-  font-size: 11px;
-  z-index: 1000;
-  min-width: 240px;
-  max-height: 300px;
-  overflow-y: auto;
-  border-radius: 4px;
-}
-#leaderboard h3 {
-  color: #ff0;
-  margin-bottom: 8px;
-  font-size: 13px;
-  text-shadow: 0 0 5px #ff0;
-}
-.leader-entry { color: #888; margin: 3px 0; display: flex; justify-content: space-between; }
-.leader-name { color: #0ff; }
-.leader-score { color: #f80; }
+#stats-panel { top: 10px; left: 10px; min-width: 200px; color: #88ff88; }
+#stats-panel h3 { color: #00ff00; margin-bottom: 6px; font-size: 13px; }
+.stat-row { margin: 3px 0; display: flex; justify-content: space-between; }
+.stat-value { color: #00ffff; font-weight: bold; }
 
-#chat-retainer {
-  position: fixed; bottom: 20px; left: 20px;
-  background: rgba(0,0,0,0.85);
-  padding: 10px;
-  border: 2px solid #333;
-  max-width: 350px;
-  z-index: 999;
-  max-height: 120px;
-  overflow-y: auto;
-  border-radius: 4px;
-}
-#chat-retainer h4 {
-  color: #0f0;
-  margin-bottom: 5px;
-  font-size: 11px;
-  text-shadow: 0 0 5px #0f0;
-}
-.chat-line { color: #888; margin: 3px 0; font-size: 10px; word-wrap: break-word; }
+#leaderboard { top: 10px; right: 10px; min-width: 240px; max-height: 320px; overflow-y: auto; }
+#leaderboard h3 { color: #ffff00; margin-bottom: 6px; font-size: 13px; }
+.leader-entry { color: #88aa88; margin: 2px 0; display: flex; justify-content: space-between; }
+.leader-name { color: #00ffff; }
+.leader-score { color: #ff8800; }
 
-/* Entities & FX */
+#chat-retainer { bottom: 10px; left: 10px; max-width: 380px; max-height: 120px; overflow-y: auto; }
+#chat-retainer h4 { color: #00ff00; margin-bottom: 4px; font-size: 11px; }
+.chat-line { color: #88aa88; margin: 2px 0; font-size: 10px; word-wrap: break-word; }
+
+#connection-status { bottom: 10px; right: 10px; padding: 6px 10px; color: #88aa88; }
+#connection-status.connected { color: #00ff00; }
+
+/* Leaderboard Timer Bar */
+#leaderboard-timer { height: 4px; width: 100%; margin-top: 4px; background: #333; }
+#leaderboard-bar { height: 100%; background: #00ff00; transition: width 1s linear; }
+
+/* =========================================================
+   ENTITIES & EFFECTS (ASCII)
+   ========================================================= */
+.status-burning { color: #ff8800 !important; }
+.status-cold { color: #0000ff !important; }
+.status-electric { color: #ffff00 !important; }
+.status-toxic { color: #00c000 !important; }
+.status-explosion { color: #ffa500 !important; }
+
 .entity {
   position: absolute;
   font-size: 14px;
   white-space: pre;
   pointer-events: none;
-  line-height: 1.2;
+  line-height: 1.0;
   font-weight: bold;
-  text-shadow: 0 0 3px currentColor;
-  transition: none;
 }
+
 .projectile {
   position: absolute;
   font-size: 10px;
   pointer-events: none;
   white-space: nowrap;
   font-weight: bold;
-  animation: pulse 0.6s infinite;
 }
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.15); }
-}
-.ammo-particle {
-  position: absolute;
-  font-size: 11px;
-  color: #fa0;
-  pointer-events: none;
-  white-space: nowrap;
-  text-shadow: 0 0 5px #fa0;
-  animation: float 3s ease-in-out infinite;
-}
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-4px); }
-}
-.damage-number {
+
+.damage-number, .point-number {
   position: absolute;
   font-size: 13px;
   font-weight: bold;
   animation: fade-up 1.6s ease-out forwards;
   pointer-events: none;
-  text-shadow: 0 0 5px currentColor;
-}
-@keyframes fade-up {
-  0% { transform: translateY(0); opacity: 1; }
-  100% { transform: translateY(-24px); opacity: 0; }
-}
-.heal-number { color: #0f0; }
-.fire-number { color: #f40; }
-.ice-number { color: #0cf; }
-.poison-number { color: #8f0; }
-
-/* Connection */
-#connection-status {
-  position: fixed;
-  top: 20px; right: 20px;
-  padding: 8px 12px;
-  background: rgba(0,0,0,0.85);
-  border: 2px solid #333;
-  font-size: 11px;
-  z-index: 1000;
-  color: #888;
-  border-radius: 4px;
-}
-#connection-status.connected {
-  color: #0f0;
-  text-shadow: 0 0 5px #0f0;
 }
 
-/* KOTH zone */
+/* KOTH circle (ASCII dashed look) */
 .koth-zone {
   position: absolute;
-  border: 2px dashed #ff0;
+  border: 1px dashed #ffff00;
   border-radius: 50%;
-  pointer-events: none;
-  opacity: 0.25;
-  animation: zone-pulse 3s ease-in-out infinite;
+  opacity: 0.40;
 }
-@keyframes zone-pulse {
-  0%, 100% { opacity: 0.2; transform: scale(1); }
-  50% { opacity: 0.35; transform: scale(1.03); }
+
+/* Central square barrier (invisible) */
+#no-entry-zone-barrier {
+  position: absolute;
+  background: transparent;
+  border: none;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 500;
 }
 </style>
 </head>
 <body>
-<div id="game-container"></div>
-
-<div id="stats-panel">
-  <h3>> BATTLE STATS</h3>
-  <div class="stat-row"><span>Players:</span><span class="stat-value" id="player-count">0</span></div>
-  <div class="stat-row"><span>AI Enemies:</span><span class="stat-value" id="ai-count">0</span></div>
-  <div class="stat-row"><span>Active:</span><span class="stat-value" id="total-fighters">0</span></div>
-  <div class="stat-row"><span>Ammo:</span><span class="stat-value" id="ammo-count">0</span></div>
-  <div class="stat-row"><span>Defeated:</span><span class="stat-value" id="kill-count">0</span></div>
+<div id="game-container">
+  <div id="no-entry-zone-barrier"></div>
 </div>
 
-<div id="leaderboard"><h3>* TOP FIGHTERS</h3></div>
-<div id="connection-status" class="disconnected">Connecting ...</div>
-
-<div id="chat-retainer">
-  <h4>. CHAT</h4>
+<div id="stats-panel" class="panel">
+  <h3>+ BATTLE STATS +</h3>
+  <div class="stat-row"><span>Players</span><span class="stat-value" id="player-count">0</span></div>
+  <div class="stat-row"><span>AI Enemies</span><span class="stat-value" id="ai-count">0</span></div>
+  <div class="stat-row"><span>Active</span><span class="stat-value" id="total-fighters">0</span></div>
+  <div class="stat-row"><span>Ammo</span><span class="stat-value" id="ammo-count">0</span></div>
+  <div class="stat-row"><span>Defeated</span><span class="stat-value" id="kill-count">0</span></div>
 </div>
+
+<div id="leaderboard" class="panel">
+  <h3>= TOP FIGHTERS =</h3>
+  <div id="leaderboard-timer"><div id="leaderboard-bar"></div></div>
+</div>
+
+<div id="connection-status" class="panel connected">INITIALIZING</div>
+
+<div id="chat-retainer" class="panel">
+  <h4>[ CHAT ]</h4>
+</div>
+
+<div id="boss-alert" class="panel" style="display:none; top: 50%; left: 50%; transform: translate(-50%, -50%); color:#ff4444;">[ BOSS SPAWNED! ]</div>
 
 <script>
-// =====================
-// CONFIGURATION
-// =====================
+// =========================================================
+// 1. CONFIGURATION AND CONSTANTS (MONOLITHIC BLOCK)
+// =========================================================
+
 const CONFIG = {
-  SOCKET_TOKEN: "", // inject via server/env in production
-  ACCESS_TOKEN: "",
+  // STREAMLABS INTEGRATION
+  API_TOKEN: "YOUR_STREAMLABS_API_TOKEN_HERE", // For future API use
+  SOCKET_TOKEN: "YOUR_STREAMLABS_SOCKET_TOKEN_HERE",
   TEST_MODE: true,
 
-  KNOCKBACK_STRENGTH: 22,
+  // GAME MECHANICS
+  KNOCKBACK_STRENGTH: 50, 
+  PROJECTILE_HIT_RADIUS: 32,
   AMMO_LIFETIME: 25000,
-  HEALTH_DECAY_RATE: 0.1,
-  INACTIVE_THRESHOLD: 30000,
-  AI_SPAWN_INTERVAL: 20000,
-  KOTH_ZONE_RADIUS: 140,
-  KOTH_POINTS_PER_SEC: 2,
+  AMMO_ABSORB_RADIUS: 80,
+  AMMO_COLLECT_RADIUS: 16,
+  AI_SPAWN_INTERVAL: 15000,
+  AGGRO_RANGE: 300, 
+  
+  // Balance
+  HERO_STARTING_AMMO: 60,
+  ENEMY_STARTING_AMMO: 5,
+  ENEMY_AMMO_REGEN_TIME: 10000,
+  
+  // Combat tuning
+  CRIT_CHANCE: 0.15, 
+  CRIT_MULTIPLIER: 2.0, 
+  POISON_DAMAGE: 1.0,
+  STATUS_DURATION: 4000,
+  
+  // Anti-idle
+  IDLE_CHECK_INTERVAL: 1000,
+  IDLE_MOVEMENT_THRESHOLD: 5,
+  IDLE_DAMAGE_AMOUNT: 1,
+  IDLE_GOAL_DURATION: 4000,
+  
+  // NO-ENTRY ZONE (NEZ) - SQUARE BARRIER
+  NEZ_SIZE: 360,
+  NEZ_CENTER_DAMAGE_RADIUS: 140,
+  NO_ZONE_DAMAGE_PER_SEC: 5, 
+  NEZ_AVOIDANCE_RADIUS: 300, // Distance at which AI actively paths around the barrier
+  
+  // KOTH
+  KOTH_ZONE_RADIUS: 44,
+  KOTH_POINTS_TO_MOVE: 15, 
+  KOTH_POINTS_PER_SEC: 1,
+  KOTH_HEAL_PER_SEC: 12,
+  KOTH_RELOCATE_INTERVAL_MS: 30000, 
+
+  // Point / Progression
+  POINTS_HIT: 1,
+  POINTS_KILL: 3, 
+  POINTS_DEATH_PENALTY: 5,
+  XP_KILL: 50,
+  XP_LEVEL_UP: 100, 
   XP_CURVE: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200],
+  
+  // UI
+  MAX_CHAT_LINES: 5,
+  LEADERBOARD_REFRESH_INTERVAL: 5000
 };
 
-// =====================
-// ARCHETYPES & WEAPONS
-// =====================
 const ARCHETYPES = {
-  warrior: { name: "Warrior", ascii: "X", color: null, hp: 80, atk: 8, spd: 30, weapon: "sword", statusChance: { fire: 0.15 } },
-  mage:    { name: "Mage",    ascii: "*", color: null, hp: 50, atk: 12, spd: 25, weapon: "staff", statusChance: { ice: 0.2 } },
-  rogue:   { name: "Rogue",   ascii: ">", color: null, hp: 60, atk: 10, spd: 40, weapon: "dagger", statusChance: { poison: 0.25 } },
-  tank:    { name: "Tank",    ascii: "#", color: null, hp: 120, atk: 5, spd: 20, weapon: "hammer", statusChance: {} },
-  ranger:  { name: "Ranger",  ascii: "1", color: null, hp: 65, atk: 9, spd: 35, weapon: "bow", statusChance: {} },
-  healer:  { name: "Healer",  ascii: "+", color: null, hp: 55, atk: 3, spd: 28, weapon: "wand", statusChance: {} },
+  tank:      { name: "Tank",      ascii: "T", hp: 100, atk: 8,  spd: 20, weapon: "hammer", range: 90, melee: true, speedBonus: 0.0 }, 
+  soldier:   { name: "Soldier",   ascii: "S", hp: 60,  atk: 10, spd: 35, weapon: "rifle",  range: 250, melee: false, speedBonus: 0.0 }, 
+  gunslinger:{ name: "Gunslinger",ascii: "G", hp: 55,  atk: 12, spd: 40, weapon: "pistol", range: 180, melee: false, speedBonus: 0.1 }, 
+  sniper:    { name: "Sniper",    ascii: "I", hp: 50,  atk: 15, spd: 30, weapon: "sniper", range: 400, melee: false, speedBonus: 0.0 }, 
+  scout:     { name: "Scout",     ascii: "C", hp: 50,  atk: 9,  spd: 50, weapon: "dagger", range: 60, melee: true, speedBonus: 0.3 }, 
+  samurai:   { name: "Samurai",   ascii: "M", hp: 75,  atk: 14, spd: 38, weapon: "katana", range: 100, melee: true, speedBonus: 0.05 },
+  bowman:    { name: "Bowman",    ascii: "B", hp: 65,  atk: 11, spd: 33, weapon: "bow", range: 250, melee: false, speedBonus: 0.0 }, 
+  ninja:     { name: "Ninja",     ascii: "N", hp: 60,  atk: 12, spd: 45, weapon: "shuriken", range: 150, melee: false, speedBonus: 0.20 },
+  healer:    { name: "Healer",    ascii: "+", hp: 40, atk: 5, spd: 33, weapon: "wand", range: 200, melee: false }
 };
 
 const WEAPONS = {
-  sword:  { projectile: "-",  damage: 8,  speed: 110, color: "#f88" },
-  staff:  { projectile: "+",  damage: 12, speed: 95,  color: "#88f" },
-  dagger: { projectile: ">",  damage: 9,  speed: 130, color: "#8f8" },
-  hammer: { projectile: ".",  damage: 7,  speed: 80,  color: "#aaa" },
-  bow:    { projectile: "->", damage: 10, speed: 120, color: "#af8" },
-  wand:   { projectile: "+",  damage: -10, speed: 110, color: "#0f8" }, // Zephyr heals
+  punch:    { projectile: '!', damage: 5,  speed: 100, color: '#999', kbMult: 0.2, cooldown: 500, range: 40 }, 
+  hammer:   { projectile: 'O', damage: 15, speed: 80,  color: '#aaa', kbMult: 1.5, cooldown: 2500, range: 90 },
+  dagger:   { projectile: '-', damage: 8,  speed: 130, color: '#8f8', kbMult: 0.3, cooldown: 600, range: 60 },
+  katana:   { projectile: '=', damage: 12, speed: 110, color: '#f44', kbMult: 0.7, cooldown: 1200, range: 100 },
+  rifle:    { projectile: '->', damage: 10, speed: 150, color: '#ccf', kbMult: 0.4, cooldown: 800, range: 250 },
+  pistol:   { projectile: '.',  damage: 6,  speed: 120, color: '#fff', kbMult: 0.2, cooldown: 300, range: 180 },
+  sniper:   { projectile: '>>', damage: 20, speed: 200, color: '#ff0', kbMult: 0.8, cooldown: 3000, range: 400 },
+  bow:      { projectile: '|>', damage: 12, speed: 140, color: '#af8', kbMult: 0.5, cooldown: 1500, range: 250 },
+  shuriken: { projectile: '*',  damage: 8,  speed: 160, color: '#000', kbMult: 0.3, cooldown: 700, range: 150 },
+  wand:     { projectile: '++', damage: -15, speed: 110, color: '#0f8', kbMult: 0.0, cooldown: 2200, range: 200 }
 };
 
-// =====================
-// GAME STATE
-// =====================
+const WEAPON_SYMBOLS = {
+  punch:    '[UNARMED]', hammer: '[HAMMER]', dagger: '[DGR]', katana: '[KATANA]',
+  rifle:    '[RIFLE]', pistol: '[PISTOL]', sniper: '[SNIPE]', bow: '[BOW]',
+  shuriken: '[SHUR]', wand: '[WAND]'
+};
+
+const STATUS_TYPES = {
+  FIRE: 'burning', COLD: 'cold', ELECTRIC: 'electric',
+  POISON: 'poison', TOXIC: 'toxic', EXPLOSION: 'explosion'
+};
+
+const AMMO_EFFECTS_MAP = {
+    fire: { shots: 10, color: '#ff8800', status: { type: STATUS_TYPES.FIRE, duration: 5000, shots: 4 } },
+    burn: { shots: 12, color: '#ff8800', status: { type: STATUS_TYPES.FIRE, duration: 6000, shots: 5 } },
+    ice: { shots: 5, color: '#00ccff', status: { type: STATUS_TYPES.COLD, duration: 3000, shots: 3 } },
+    freeze: { shots: 6, color: '#00ccff', status: { type: STATUS_TYPES.COLD, duration: 4000, shots: 4 } },
+    zap: { shots: 4, color: '#ffff00', status: { type: STATUS_TYPES.ELECTRIC, duration: 2500, shots: 3 } },
+    shock: { shots: 5, color: '#ffff00', status: { type: STATUS_TYPES.ELECTRIC, duration: 3000, shots: 4 } },
+    poison: { shots: 7, color: '#00cc00', status: { type: STATUS_TYPES.POISON, duration: 8000, shots: 5 } },
+    
+    heal: { shots: 3, color: '#00ff00', selfHeal: 25 },
+    shield: { shots: 2, color: '#ffffff', selfShield: true },
+    default:{ shots: 10, color: '#fa0' }
+};
+
+const PLAYER_COLORS = {
+  tank: "#bbb", soldier: "#f44", gunslinger: "#ff0", sniper: "#00f", scout: "#008800", samurai: "#800000", bowman: "#0a0", ninja: "#555", healer: "#0ff"
+};
+const DEFENSE_COLORS = {
+  tank: "#fff", soldier: "#ff0", gunslinger: "#0ff", sniper: "#ff0", scout: "#00f", samurai: "#888", bowman: "#0a0", ninja: "#333", healer: "#0ff"
+};
+
+const RPS_BONUS = 0.25;
+const RPS_RULES = { 
+    soldier: "sniper", sniper: "gunslinger", gunslinger: "tank", tank: "samurai", samurai: "bowman", bowman: "scout", scout: "ninja", ninja: "soldier"
+};
+
+
+// =========================================================
+// 3. GAME STATE
+// =========================================================
+
 const GameState = {
   fighters: [],
   projectiles: [],
   ammo: [],
-  container: document.getElementById('game-container'),
-  width: window.innerWidth,
-  height: window.innerHeight,
+  container: null, 
+  width: 0,
+  height: 0,
   playerData: {},
   chatMessages: [],
   boss: null,
   kothZone: null,
-  lastAISpawn: 0,
-  lastKOTHMove: 0,
+  noEntryZoneBarrier: null, 
+  lastAISpawn: performance.now(),
+  kothPointsAccumulated: 0, 
   stats: { kills: 0 },
   lastUpdate: performance.now(),
+  centerX: 0,
+  centerY: 0,
+  lastLeaderboardUpdate: performance.now(),
+  lastEnemyAmmoRegen: performance.now(),
+  lastKothMove: performance.now()
 };
 
-// =====================
-// UTILS
-// =====================
+// =========================================================
+// 4. UTILITY FUNCTIONS
+// =========================================================
+
 function hashUsername(username) {
   let hash = 0;
   for (let i = 0; i < username.length; i++) {
@@ -258,17 +303,23 @@ function hashUsername(username) {
   }
   return Math.abs(hash);
 }
+
 function getArchetypeForUser(username) {
   const seed = hashUsername(username);
-  const archetypes = Object.keys(ARCHETYPES);
+  const archetypes = Object.keys(ARCHETYPES).filter(a => a !== 'healer');
   return archetypes[seed % archetypes.length];
 }
+
 function distance(x1, y1, x2, y2) {
   return Math.sqrt((x2-x1) ** 2 + (y2-y1) ** 2);
 }
-function showFloatingText(x, y, text, color) {
+
+function showFloatingText(x, y, text, color, isCrit = false) {
   const el = document.createElement('div');
   el.className = 'damage-number';
+  if (isCrit) {
+    el.classList.add('crit');
+  }
   el.textContent = text;
   el.style.color = color;
   el.style.left = `${x}px`;
@@ -276,95 +327,198 @@ function showFloatingText(x, y, text, color) {
   GameState.container.appendChild(el);
   setTimeout(() => el.remove(), 1600);
 }
-function getColorForUser(username) {
-  const hue = hashUsername(username) % 360;
-  return `hsl(${hue}, 80%, 60%)`;
+
+function showFloatingPoints(x, y, text, type) {
+    const el = document.createElement('div');
+    el.className = 'point-number';
+    el.textContent = text;
+    el.style.color = type === 'XP' ? '#00ffff' : '#00ff00';
+    el.style.left = `${x}px`;
+    el.style.top = `${y + 10}px`; 
+    GameState.container.appendChild(el);
+    setTimeout(() => el.remove(), 1600);
 }
+
+
 function getPlayerData(username) {
   if (!GameState.playerData[username]) {
     GameState.playerData[username] = {
       username,
-      archetype: username === "Zephyr" ? "healer" : getArchetypeForUser(username),
+      archetype: isZephyr(username) ? "healer" : getArchetypeForUser(username), 
       level: 1,
       xp: 0,
       kills: 0,
       deaths: 0,
-      points: 0,  // PvP/KOTH points bucket
+      points: 0,
     };
   }
   return GameState.playerData[username];
 }
-function isZephyr(username) { return username === "Zephyr"; }
 
-// =====================
-// AMMO
-// =====================
+function isZephyr(username) { return username === "Zephyr"; }
+function isAlly(f1, f2) {
+    if (f1.isEnemy && f2.isEnemy) return true; 
+    if (!f1.isEnemy && !f2.isEnemy) {
+        if (isZephyr(f1.username) || isZephyr(f2.username)) {
+            return true; 
+        }
+    }
+    return false;
+}
+
+/**
+ * Checks if a coordinate falls within the bounds of the square NEZ barrier.
+ */
+function isInsideBarrier(x, y) {
+    const halfSize = CONFIG.NEZ_SIZE / 2;
+    const left = GameState.centerX - halfSize;
+    const right = GameState.centerX + halfSize;
+    const top = GameState.centerY - halfSize;
+    const bottom = GameState.centerY + halfSize;
+
+    return x > left && x < right && y > top && y < bottom;
+}
+
+/**
+ * Checks if a coordinate is within the central circular damage zone.
+ */
+function isInsideDamageZone(x, y) {
+    return distance(x, y, GameState.centerX, GameState.centerY) < CONFIG.NEZ_CENTER_DAMAGE_RADIUS;
+}
+
+// =========================================================
+// 5. AMMO CLASS (Chat Words)
+// =========================================================
 class Ammo {
   constructor(word, x, y) {
     this.word = word;
     this.x = (typeof x === 'number' ? x : Math.random() * GameState.width);
     this.y = (typeof y === 'number' ? y : Math.random() * GameState.height);
+    
+    // Ensure ammo doesn't spawn inside the Square Barrier
+    let tries = 0;
+    while(isInsideBarrier(this.x, this.y) && tries++ < 10) {
+        this.x = 30 + Math.random() * (GameState.width - 60);
+        this.y = 30 + Math.random() * (GameState.height - 60);
+    }
+    
     this.collected = false;
     this.spawnTime = Date.now();
     this.vx = (Math.random() - 0.5) * 1.6;
     this.vy = (Math.random() - 0.5) * 1.6;
     this.createElement();
   }
+
   createElement() {
     this.element = document.createElement('div');
     this.element.className = 'ammo-particle';
     this.element.textContent = this.word;
+    
+    const effectData = AMMO_EFFECTS_MAP[this.word.toLowerCase()] || AMMO_EFFECTS_MAP.default;
+    this.element.style.color = effectData.color || '#fa0';
+    
     this.element.style.left = `${this.x}px`;
     this.element.style.top = `${this.y}px`;
     GameState.container.appendChild(this.element);
   }
+
   update(dt) {
     if (this.collected) return;
-    if (Date.now() - this.spawnTime > CONFIG.AMMO_LIFETIME) { this.destroy(); return; }
-    this.x += this.vx * 24 * dt;
-    this.y += this.vy * 24 * dt;
-    if (this.x < 0 || this.x > GameState.width) this.vx *= -1;
-    if (this.y < 0 || this.y > GameState.height) this.vy *= -1;
-    this.element.style.left = `${this.x}px`;
-    this.element.style.top = `${this.y}px`;
-    for (const f of GameState.fighters) {
-      if (!f.alive || f.isEnemy) continue;
-      if (distance(f.x, f.y, this.x, this.y) < 35) {
+    
+    if (Date.now() - this.spawnTime > CONFIG.AMMO_LIFETIME) { 
+      this.destroy(); 
+      return; 
+    }
+    
+    // Check for collection by players (magnet effect)
+    for (const f of GameState.fighters.slice()) {
+      if (!f.alive || f.isEnemy) continue; 
+      
+      const dist = distance(f.x, f.y, this.x, this.y);
+
+      if (dist < CONFIG.AMMO_COLLECT_RADIUS) {
         f.collectAmmo(this.word);
         this.destroy();
-        break;
+        return;
+      } else if (dist < CONFIG.AMMO_ABSORB_RADIUS) {
+        // Magnet effect: accelerate ammo towards the player
+        const dx = f.x - this.x;
+        const dy = f.y - this.y;
+        const ratio = (CONFIG.AMMO_ABSORB_RADIUS - dist) / CONFIG.AMMO_ABSORB_RADIUS;
+        
+        const force = 100 * ratio * dt; 
+        const d = dist || 1;
+        
+        this.vx += (dx / d) * force;
+        this.vy += (dy / d) * force;
+        
+        this.vx *= 0.95;
+        this.vy *= 0.95;
       }
     }
+    
+    this.x += this.vx * 24 * dt;
+    this.y += this.vy * 24 * dt;
+    
+    // Boundary bounce
+    if (this.x < 0 || this.x > GameState.width) this.vx *= -1;
+    if (this.y < 0 || this.y > GameState.height) this.vy *= -1;
+    
+    this.element.style.left = `${this.x}px`;
+    this.element.style.top = `${this.y}px`;
   }
+
   destroy() {
+    this.collected = true;
     if (this.element) this.element.remove();
     const idx = GameState.ammo.indexOf(this);
     if (idx > -1) GameState.ammo.splice(idx, 1);
   }
 }
 
-// =====================
-// PROJECTILES
-// =====================
+// =========================================================
+// 6. PROJECTILE CLASS
+// =========================================================
 class Projectile {
   constructor(owner, target) {
     this.owner = owner;
     this.x = owner.x;
     this.y = owner.y;
-    const weapon = WEAPONS[owner.weaponType];
-    this.damage = weapon.damage;
+    const weapon = WEAPONS[owner.weaponType]; 
+    
+    let damageModifier = 1.0;
+    if (RPS_RULES[owner.archetype] === target.archetype) {
+        damageModifier += RPS_BONUS;
+    }
+
+    const isCrit = Math.random() < CONFIG.CRIT_CHANCE;
+    this.damage = ((weapon.damage + owner.attack * 0.5) * (isCrit ? CONFIG.CRIT_MULTIPLIER : 1)) * damageModifier;
+    this.isCrit = isCrit;
+    
     this.speed = weapon.speed;
     this.color = weapon.color;
     this.symbol = weapon.projectile;
+    
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = Math.sqrt(dx*dx + dy*dy) || 1;
     this.vx = (dx / dist) * this.speed;
     this.vy = (dy / dist) * this.speed;
+    
     this.lifetime = 0;
     this.maxLifetime = 4.5;
+
+    this.statusToApply = this.owner.onHitStatus ? { ...this.owner.onHitStatus } : null;
+    if (this.statusToApply) {
+        this.owner.onHitStatus.shotsRemaining--;
+        if (this.owner.onHitStatus.shotsRemaining <= 0) {
+            this.owner.onHitStatus = null; 
+        }
+    }
+
     this.createElement();
   }
+
   createElement() {
     this.element = document.createElement('div');
     this.element.className = 'projectile';
@@ -374,36 +528,56 @@ class Projectile {
     this.element.style.top = `${this.y}px`;
     GameState.container.appendChild(this.element);
   }
+
   update(dt) {
     this.lifetime += dt;
-    if (this.lifetime > this.maxLifetime) { this.destroy(); return; }
+    if (this.lifetime > this.maxLifetime) { 
+      this.destroy(); 
+      return; 
+    }
+    
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     this.element.style.left = `${this.x}px`;
     this.element.style.top = `${this.y}px`;
 
-    for (const f of GameState.fighters) {
+    for (const f of GameState.fighters.slice()) {
       if (!f.alive || f === this.owner) continue;
+      
+      // Projectiles cannot hit owners, nor violate ally/enemy logic
+      if (this.damage > 0 && isAlly(this.owner, f)) continue;
+      if (this.damage < 0 && !isAlly(this.owner, f)) continue;
+      
+      const hitDist = distance(f.x, f.y, this.x, this.y);
 
-      // Allied enemies: they don't hurt each other; they hurt all players (including Zephyr).
-      // PvP enabled: players can hurt players.
-      const ownerIsEnemy = this.owner.isEnemy;
-      const targetIsEnemy = f.isEnemy;
-      const friendlyEnemyFire = ownerIsEnemy && targetIsEnemy;
-      if (friendlyEnemyFire) continue;
+      if (hitDist < CONFIG.PROJECTILE_HIT_RADIUS) {
+        
+        if (this.statusToApply && this.damage > 0) {
+            f.applyStatus(this.statusToApply.type, this.statusToApply.duration);
+        }
 
-      if (distance(f.x, f.y, this.x, this.y) < 25) {
-        f.takeDamage(this.damage, this.owner);
-        const dx = f.x - this.owner.x;
-        const dy = f.y - this.owner.y;
-        const d = Math.sqrt(dx*dx + dy*dy) || 1;
-        f.vx += (dx / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
-        f.vy += (dy / d) * CONFIG.KNOCKBACK_STRENGTH * 0.2;
+        f.takeDamage(this.damage, this.owner, this.isCrit);
+        
+        // KNOCKBACK IMPLEMENTATION (Universal on positive damage)
+        if (this.damage > 0) {
+            const weaponKBMult = WEAPONS[this.owner.weaponType].kbMult; 
+            const knockbackResistance = f.maxHp / 100; 
+            const effectiveKnockback = CONFIG.KNOCKBACK_STRENGTH * weaponKBMult / knockbackResistance;
+
+            const dx = f.x - this.owner.x;
+            const dy = f.y - this.owner.y;
+            const knockbackDist = Math.sqrt(dx*dx + dy*dy) || 1; 
+            
+            f.vx += (dx / knockbackDist) * effectiveKnockback;
+            f.vy += (dy / knockbackDist) * effectiveKnockback;
+        }
+
         this.destroy();
         break;
       }
     }
   }
+
   destroy() {
     if (this.element) this.element.remove();
     const idx = GameState.projectiles.indexOf(this);
@@ -411,66 +585,118 @@ class Projectile {
   }
 }
 
-// =====================
-// FIGHTERS
-// =====================
+// =========================================================
+// 7. FIGHTER CLASS 
+// =========================================================
 class Fighter {
-  constructor(username, isEnemy = false, isBoss = false) {
+  constructor(username, isEnemy = false, isBoss = false, isBot = false) {
     this.username = username;
     this.isEnemy = isEnemy;
     this.isBoss = isBoss;
+    this.isBot = isBot;
     this.alive = true;
 
+    let arch, data;
+    
     if (isEnemy || isBoss) {
-      this.archetype = isBoss ? 'warrior' : Object.keys(ARCHETYPES)[Math.floor(Math.random() * 6)];
+      this.archetype = isBoss ? 'tank' : Object.keys(ARCHETYPES).filter(a => a !== 'healer')[Math.floor(Math.random() * 8)];
       this.level = isBoss ? 10 : Math.floor(Math.random() * 3) + 1;
+      
+      const enemyPowerMult = isBoss ? 1 : 0.5;
+      
+      arch = ARCHETYPES[this.archetype];
+      const levelMult = 1 + (this.level - 1) * 0.15;
+      const bossHP = isBoss ? 6 : 1;
+      const bossATK = isBoss ? 3 : 1;
+      
+      this.maxHp = Math.round(arch.hp * levelMult * bossHP * enemyPowerMult);
+      this.attack = Math.round(arch.atk * levelMult * bossATK * enemyPowerMult);
+
     } else {
-      const data = getPlayerData(username);
+      data = getPlayerData(username);
       this.archetype = data.archetype;
       this.level = data.level;
       this.xp = data.xp;
+
+      arch = ARCHETYPES[this.archetype];
+      const levelMult = 1 + (this.level - 1) * 0.15;
+      this.maxHp = Math.round(arch.hp * levelMult);
+      this.attack = Math.round(arch.atk * levelMult);
+    }
+    
+    this.hp = this.maxHp;
+    this.speed = arch.spd * (arch.speedBonus ? 1 + arch.speedBonus : 1); 
+    
+    this.color = this.isBot ? "#555" : (this.isBoss ? "#f00" : (this.isEnemy ? "#d44" : PLAYER_COLORS[this.archetype]));
+
+    this.defenseColor = DEFENSE_COLORS[this.archetype]; 
+    this.ascii = arch.ascii;
+    
+    // WEAPON SETUP
+    if (isZephyr(username)) {
+      this.archetype = 'healer';
+      this.weaponType = "wand";
+    } else {
+      this.weaponType = arch.weapon; 
+    }
+    
+    this.weaponSymbol = WEAPON_SYMBOLS[this.weaponType];
+    this.isMelee = WEAPONS[this.weaponType].range <= 100;
+
+    this.attackCooldown = WEAPONS[this.weaponType].cooldown;
+    this.attackRange = WEAPONS[this.weaponType].range; 
+    this.preferredDistance = this.attackRange * 0.8; 
+    this.chargeDistance = this.attackRange * 1.5;
+
+    if (!isEnemy && !isZephyr(username)) {
+        this.ammoReserve = CONFIG.HERO_STARTING_AMMO;
+        this.ammoCount = Math.floor(this.ammoReserve / 10);
+    } else if (isEnemy && !this.isBoss && this.weaponType !== 'wand' && this.attackRange > 100) {
+        this.ammoReserve = CONFIG.ENEMY_STARTING_AMMO;
+        this.ammoCount = Math.floor(this.ammoReserve / 10);
+    } else {
+        this.ammoReserve = 9999; 
     }
 
-    const arch = ARCHETYPES[this.archetype];
-    const levelMult = 1 + (this.level - 1) * 0.15;
-    this.maxHp = Math.round(arch.hp * levelMult * (isBoss ? 5 : 1));
-    this.hp = this.maxHp;
-    this.attack = Math.round(arch.atk * levelMult * (isBoss ? 3 : 1));
-    this.speed = arch.spd;
-
-    this.color = isZephyr(username) ? "#0ff" : getColorForUser(username);
-    this.ascii = isZephyr(username) ? "@" : arch.ascii;
-    this.weaponType = isZephyr(username) ? "wand" : arch.weapon;
-
-    this.ammoCount = 0;
-    this.vx = 0;
-    this.vy = 0;
+    this.vx = 0; this.vy = 0;
     this.lastAttack = 0;
-    this.attackCooldown = isZephyr(username) ? 2200 : 2500; // Zephyr heals more responsively
-    this.statusEffects = [];
-
-    this.anchorX = GameState.width / 2;  // for Zephyr's home anchor
-    this.anchorY = GameState.height - 80;
+    this.statusEffects = []; 
+    this.onHitStatus = null;
+    this.lastX = 0; this.lastY = 0;
+    this.lastIdleCheck = performance.now();
+    this.currentGoal = null; 
+    this.goalStartTime = 0;
+    this.maxGoalDuration = CONFIG.IDLE_GOAL_DURATION;
 
     this.spawnPosition();
     this.createElement();
+    this.lastX = this.x; this.lastY = this.y;
   }
 
   spawnPosition() {
-    if (this.isEnemy) {
-      this.x = Math.random() * GameState.width;
-      this.y = -50;
+    if (this.isEnemy || this.isBot) {
+        const margin = 50; 
+        const side = Math.floor(Math.random() * 4);
+        
+        if (side === 0) { this.x = -margin; this.y = Math.random() * GameState.height; }
+        else if (side === 1) { this.x = GameState.width + margin; this.y = Math.random() * GameState.height; }
+        else if (side === 2) { this.x = Math.random() * GameState.width; this.y = -margin; }
+        else { this.x = Math.random() * GameState.width; this.y = GameState.height + margin; }
+
     } else if (isZephyr(this.username)) {
-      this.x = this.anchorX;
-      this.y = this.anchorY;
+      this.x = GameState.width / 2;
+      this.y = GameState.height - 80;
     } else {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 180 + Math.random() * 160;
-      this.x = GameState.width / 2 + Math.cos(angle) * distance;
-      this.y = GameState.height / 2 + Math.sin(angle) * distance;
+      let tries = 0;
+      do {
+        this.x = 30 + Math.random() * (GameState.width - 60);
+        this.y = 30 + Math.random() * (GameState.height - 60);
+        tries++;
+      } while (isInsideBarrier(this.x, this.y) && tries < 10);
+      
+      this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
+      this.y = Math.max(30, Math.min(GameState.height - 30, this.y));
     }
-    this.x = Math.max(50, Math.min(GameState.width - 50, this.x));
-    this.y = Math.max(50, Math.min(GameState.height - 50, this.y));
   }
 
   createElement() {
@@ -479,201 +705,492 @@ class Fighter {
     this.element.style.color = this.color;
     this.element.style.left = `${this.x}px`;
     this.element.style.top = `${this.y}px`;
-    if (this.isBoss) this.element.style.fontSize = '24px';
+    if (this.isBoss) this.element.style.fontSize = '20px';
+    
+    this.element.style.borderBottom = `2px solid ${this.defenseColor}`;
+    this.element.style.paddingBottom = '2px'; 
+
     this.updateDisplay();
     GameState.container.appendChild(this.element);
   }
 
   updateDisplay() {
-    const hpPct = Math.max(0, this.hp / this.maxHp);
+    const hpPct = Math.min(1.0, Math.max(0, this.hp / this.maxHp));
     const bars = Math.ceil(hpPct * 5);
-    const hpBar = '_'.repeat(bars) + '"'.repeat(5 - bars);
+    const emptyBars = Math.max(0, 5 - bars);
+    
+    const hpBar = '[' + '#'.repeat(bars) + ' '.repeat(emptyBars) + ']';
 
     const nameDisplay = this.username.substring(0, 10);
-    const ammoDisplay = this.isEnemy ? "" : ` [${this.ammoCount}]`;
+    
+    let statusLine = '';
 
-    // Zephyr should show as Support, no points earned
-    const line4 = isZephyr(this.username)
-      ? `${hpBar} SUPPORT${ammoDisplay}`
-      : `${hpBar}${ammoDisplay}`;
+    // ASCII status indicators
+    const statusSymbols = {
+        burning: "[FIRE]", cold: "[ICE]", electric: "[ZAP]",
+        poison: "[PZN]", toxic: "[TOX]", explosion: "[EXP]"
+    };
+    for (const status of this.statusEffects) {
+        statusLine += statusSymbols[status.type];
+    }
+    
+    // Simplified Visual Display
+    this.element.textContent = 
+`${this.weaponSymbol} ${nameDisplay} ${statusLine}
+${hpBar} L${this.level}`;
 
-    this.element.textContent = `${this.ascii}
-${nameDisplay}
-L${this.level}
-${line4}`;
+    // Apply status color effect
+    this.element.className = 'entity';
+    this.element.style.borderBottom = `2px solid ${this.defenseColor}`; 
+    this.element.style.paddingBottom = '2px'; 
+
+    const activeStatus = this.statusEffects.length > 0 ? this.statusEffects[0].type : null;
+    if (activeStatus) {
+        this.element.classList.add(`status-${activeStatus}`);
+    } else {
+        this.element.style.color = this.color;
+    }
+  }
+  
+  applyStatus(type, duration = CONFIG.STATUS_DURATION) {
+      if (this.statusEffects.some(s => s.type === type && (type !== STATUS_TYPES.TOXIC && type !== STATUS_TYPES.EXPLOSION))) return;
+
+      const newStatus = { type, expiry: Date.now() + duration };
+      
+      const hasStatus = (t) => this.statusEffects.some(s => s.type === t);
+
+      if ((type === STATUS_TYPES.FIRE && hasStatus(STATUS_TYPES.COLD)) || (type === STATUS_TYPES.COLD && hasStatus(STATUS_TYPES.FIRE))) {
+          newStatus.type = STATUS_TYPES.EXPLOSION;
+          newStatus.duration = 1000;
+      } 
+      else if (type === STATUS_TYPES.POISON && (hasStatus(STATUS_TYPES.FIRE) || hasStatus(STATUS_TYPES.COLD) || hasStatus(STATUS_TYPES.ELECTRIC))) {
+          newStatus.type = STATUS_TYPES.TOXIC;
+          newStatus.duration = 8000;
+      }
+
+      if (newStatus.type === STATUS_TYPES.TOXIC || newStatus.type === STATUS_TYPES.EXPLOSION) {
+          this.statusEffects = [];
+      }
+      
+      this.statusEffects.push(newStatus);
+      this.statusEffects.sort((a, b) => b.expiry - a.expiry); 
+      
+      showFloatingText(this.x, this.y - 45, `STATUS: ${newStatus.type.toUpperCase()}`, '#fff');
   }
 
   collectAmmo(word) {
-    this.ammoCount++;
-    showFloatingText(this.x, this.y - 30, `+${word}`, '#fa0');
+    const effectData = AMMO_EFFECTS_MAP[word.toLowerCase()] || AMMO_EFFECTS_MAP.default;
+    const shotsAdded = effectData.shots || 0;
+    
+    if (effectData.selfHeal) {
+        this.hp = Math.min(this.maxHp, this.hp + effectData.selfHeal);
+        showFloatingText(this.x, this.y - 35, `+${effectData.selfHeal} HP (${word})`, effectData.color || '#0f0');
+    } else if (effectData.selfShield) {
+        showFloatingText(this.x, this.y - 35, `SHIELD UP (${word})`, effectData.color || '#fff');
+    }
+    
+    if (effectData.status) {
+        const { type, duration, shots } = effectData.status;
+        this.onHitStatus = {
+            type,
+            duration,
+            shotsRemaining: (this.onHitStatus?.shotsRemaining || 0) + (shots || 5)
+        };
+        showFloatingText(this.x, this.y - 30, `+ ${word} [${this.onHitStatus.shotsRemaining} FX Shots]`, effectData.color || '#fa0');
+    }
+
+    if (this.weaponType !== 'wand') {
+      this.ammoReserve += shotsAdded;
+      this.ammoCount = Math.floor(this.ammoReserve / 10);
+      showFloatingPoints(this.x, this.y - 10, `+1 Ammo Crate`, 'Points');
+    }
+
+    this.goalStartTime = 0;
+  }
+
+  moveToward(targetX, targetY, speedMultiplier = 1.0) {
+    const dx = targetX - this.x;
+    const dy = targetY - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    
+    const actualSpeed = this.currentBaseSpeed * speedMultiplier; 
+
+    this.vx = (dx / dist) * actualSpeed;
+    this.vy = (dy / dist) * actualSpeed;
+  }
+  
+  moveTactically(target, attackBlocked, dt) {
+    const dist = distance(this.x, this.y, target.x, target.y);
+    const isMelee = WEAPONS[this.weaponType].range <= 100;
+    
+    // Check if movement leads into the invisible wall's exclusion zone (Square Barrier)
+    const dCenter = distance(this.x, this.y, GameState.centerX, GameState.centerY);
+    
+    if (dCenter < CONFIG.NEZ_AVOIDANCE_RADIUS) {
+         // Steer around the barrier (Applies angular force tangent to the center)
+         const dx_center = this.x - GameState.centerX;
+         const dy_center = this.y - GameState.centerY;
+         
+         // Calculate tangent angle to walk around the barrier
+         const tangentAngle = Math.atan2(dy_center, dx_center) + (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+         
+         this.vx = Math.cos(tangentAngle) * this.currentBaseSpeed * 0.8;
+         this.vy = Math.sin(tangentAngle) * this.currentBaseSpeed * 0.8;
+         return; // Skip normal movement logic if avoiding barrier
+    }
+    
+    // Normal movement logic (continuous movement, no stalling)
+    if (this.ammoReserve === 0 && !isMelee) {
+        this.moveToward(target.x, target.y, 1.0); 
+    } else if (isMelee) {
+        // Move fully toward target if out of range, otherwise pace slightly
+        if (dist > this.attackRange * 0.9) {
+            this.moveToward(target.x, target.y, 1.0);
+        } else {
+            // Circle/pace target slightly
+            this.moveToward(target.x, target.y, 0.1); 
+        }
+    } else {
+        if (dist < this.preferredDistance * 0.7) { // Too close, retreat/flank
+            const dx = this.x - target.x;
+            const dy = this.y - target.y;
+            const angle = Math.atan2(dy, dx);
+            const flankAngle = angle + (Math.random() < 0.5 ? 0.8 : -0.8); 
+            
+            this.vx = Math.cos(flankAngle) * this.currentBaseSpeed * 0.5;
+            this.vy = Math.sin(flankAngle) * this.currentBaseSpeed * 0.5;
+        } else if (dist > this.preferredDistance + 50) { // Too far
+            this.moveToward(target.x, target.y, 1.0);
+        } else {
+            // Optimal range, pace slightly to hold position
+            this.moveToward(target.x, target.y, 0.2); 
+        }
+    }
   }
 
   update(dt) {
     if (!this.alive) return;
 
-    for (const effect of this.statusEffects) {
-      if (effect === 'fire') this.hp -= CONFIG.HEALTH_DECAY_RATE * dt;
-      if (effect === 'poison') this.hp -= (CONFIG.HEALTH_DECAY_RATE * 0.6) * dt;
+    const now = performance.now();
+    
+    let inKoth = false;
+    if (GameState.kothZone) {
+        const d = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
+        if (d <= CONFIG.KOTH_ZONE_RADIUS) {
+            inKoth = true;
+            if (!this.isEnemy && !isZephyr(this.username)) {
+                 this.hp = Math.min(this.maxHp, this.hp + CONFIG.KOTH_HEAL_PER_SEC * dt);
+                 
+                 const kothPointsThisFrame = CONFIG.KOTH_POINTS_PER_SEC * dt;
+                 const pdata = getPlayerData(this.username);
+                 pdata.points += kothPointsThisFrame;
+                 GameState.kothPointsAccumulated += kothPointsThisFrame;
+            }
+        }
+    }
+    
+    // --- Status Effect Handling ---
+    this.statusEffects = this.statusEffects.filter(s => s.expiry > now);
+    let movementForced = false;
+    let movementBlocked = false;
+    let attackBlocked = false;
+    let electricSpeedBonus = 0; 
+
+    for (const status of this.statusEffects) {
+        if (status.type === STATUS_TYPES.FIRE || status.type === STATUS_TYPES.EXPLOSION) {
+            movementForced = true;
+            attackBlocked = true;
+            this.hp -= 0.5 * dt; 
+        } else if (status.type === STATUS_TYPES.COLD) {
+            movementBlocked = true;
+            attackBlocked = true;
+            this.hp -= 0.15 * dt; 
+        } else if (status.type === STATUS_TYPES.ELECTRIC) {
+            movementForced = true; 
+            electricSpeedBonus = 0.35; 
+        } else if (status.type === STATUS_TYPES.POISON || status.type === STATUS_TYPES.TOXIC) {
+             this.hp -= CONFIG.POISON_DAMAGE * dt; 
+        }
+    }
+    
+    this.currentBaseSpeed = this.speed * (1 + electricSpeedBonus);
+    
+    // Damage logic: Only applies if inside the smaller central damage circle
+    if (isInsideDamageZone(this.x, this.y)) {
+        const damage = CONFIG.NO_ZONE_DAMAGE_PER_SEC * dt * 3;
+        this.takeDamage(damage, null, false, 'zone');
+        showFloatingText(this.x, this.y + 10, `ZONE DMG -${Math.round(damage)} (3X)`, '#f00');
     }
 
-    if (this.isEnemy) this.updateEnemyAI(dt);
-    else if (isZephyr(this.username)) this.updateZephyrAI(dt);
-    else this.updatePlayerAI(dt);
+    // Hard Collision Check (If inside the square barrier, TELEPORT out)
+    if (isInsideBarrier(this.x, this.y)) {
+        const halfSize = CONFIG.NEZ_SIZE / 2;
+        const barrierX = GameState.centerX;
+        const barrierY = GameState.centerY;
 
-    this.vx *= 0.98;
-    this.vy *= 0.98;
+        const x_diff = this.x - barrierX;
+        const y_diff = this.y - barrierY;
 
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
+        if (Math.abs(x_diff) > Math.abs(y_diff)) {
+             this.x = (x_diff > 0 ? barrierX + halfSize + 5 : barrierX - halfSize - 5);
+        } else {
+             this.y = (y_diff > 0 ? barrierY + halfSize + 5 : barrierY - halfSize - 5);
+        }
+        
+        this.vx = 0; this.vy = 0;
+        // NOTE: Removed floating text notification for bumping invisible wall
+    }
 
-    this.x = Math.max(30, Math.min(GameState.width - 30, this.x));
-    this.y = Math.max(30, Math.min(GameState.height - 30, this.y));
+    // --- ENTITY COLLISION (Prevents stacking) ---
+    for (const other of GameState.fighters) {
+        if (other === this || !other.alive) continue;
+        const dist = distance(this.x, this.y, other.x, other.y);
+        const minDistance = 20; 
+
+        if (dist < minDistance) {
+            const overlap = minDistance - dist;
+            const dx = this.x - other.x;
+            const dy = this.y - other.y;
+            const d = dist || 0.1;
+
+            this.x += (dx / d) * overlap * 0.5;
+            this.y += (dy / d) * overlap * 0.5;
+            other.x -= (dx / d) * overlap * 0.5;
+            other.y -= (dy / d) * overlap * 0.5;
+            
+            this.vx += (dx / d) * 15 * dt; 
+            this.vy += (dy / d) * 15 * dt;
+        }
+    }
+    
+    // --- Anti-Idle Check ---
+    if (!isZephyr(this.username) && !inKoth && now - this.lastIdleCheck > CONFIG.IDLE_CHECK_INTERVAL) {
+        const distMoved = distance(this.x, this.y, this.lastX, this.lastY);
+        if (distMoved < CONFIG.IDLE_MOVEMENT_THRESHOLD) {
+            this.takeDamage(CONFIG.IDLE_DAMAGE_AMOUNT, null, false, 'idle'); 
+            this.currentGoal = this.findClosestObjective();
+            this.goalStartTime = now;
+            showFloatingText(this.x, this.y - 10, `IDLE! -${CONFIG.IDLE_DAMAGE_AMOUNT}`, '#f80');
+        }
+        this.lastX = this.x; this.lastY = this.y; this.lastIdleCheck = now;
+    }
+
+    // --- Enemy Ammo Regen ---
+    if (this.isEnemy && !this.isBoss && this.weaponType !== 'wand' && this.attackRange > 100 && now - GameState.lastEnemyAmmoRegen > CONFIG.ENEMY_AMMO_REGEN_TIME) {
+        this.ammoReserve = Math.min(this.ammoReserve + 5, CONFIG.HERO_STARTING_AMMO);
+        this.ammoCount = Math.floor(this.ammoReserve / 10);
+    }
+    
+    // --- AI/Movement Logic ---
+    if (movementBlocked) {
+        this.vx = 0; this.vy = 0;
+    } else if (movementForced) {
+        this.vx += (Math.random() - 0.5) * this.currentBaseSpeed * dt * 3;
+        this.vy += (Math.random() - 0.5) * this.currentBaseSpeed * dt * 3;
+    } else {
+        this.updatePlayerAI(dt, attackBlocked);
+    }
+
+    // If still no velocity (after all AI logic ran), force minimum movement
+    if (this.vx === 0 && this.vy === 0) {
+        this.vx = (Math.random() - 0.5) * this.currentBaseSpeed * 0.05 * dt;
+        this.vy = (Math.random() - 0.5) * this.currentBaseSpeed * 0.05 * dt;
+    }
+
+
+    // Damping / Friction
+    this.vx *= 0.98; this.vy *= 0.98;
+
+    // Apply movement and boundary checks
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    this.x = Math.max(0, Math.min(GameState.width, this.x));
+    this.y = Math.max(0, Math.min(GameState.height, this.y));
 
     this.element.style.left = `${this.x}px`;
     this.element.style.top = `${this.y}px`;
     this.updateDisplay();
   }
+  
+  findClosestObjective() {
+    let closestGoal = null;
+    let bestScore = Infinity;
+    
+    // P0: HEAL PRIORITY (Only Zephyr uses this)
+    if (isZephyr(this.username)) { 
+         const target = GameState.fighters.find(f => !f.isEnemy && f.alive && f.hp / f.maxHp < 0.9);
+         if (target) {
+            const dist = distance(this.x, this.y, target.x, target.y);
+            bestScore = dist * 0.05; 
+            closestGoal = { type: 'Heal', x: target.x, y: target.y, target: target, isHeal: true };
+         }
+    }
 
-  updatePlayerAI(dt) {
-    // Players: collect ammo, fight enemies, and PvP.
-    let target = null;
-    let minDist = Infinity;
-
-    if (this.ammoCount < 2) {
+    // P1: AGGRO CHECK (Override all goals if hostile is close)
+    if (!isZephyr(this.username)) {
+        const { target: hostile, distance: dist } = this.findClosestTarget();
+        if (hostile && dist < CONFIG.AGGRO_RANGE) {
+            // Negative score to guarantee highest priority
+            return { type: 'Aggro', x: hostile.x, y: hostile.y, target: hostile, score: -100 }; 
+        }
+    }
+    
+    // 1. Ammo (Prioritized near KOTH)
+    if (this.weaponType !== 'wand' && WEAPONS[this.weaponType].damage > 0) {
+      const koth = GameState.kothZone;
       for (const ammo of GameState.ammo) {
-        if (ammo.collected) continue;
-        const dist = distance(this.x, this.y, ammo.x, ammo.y);
-        if (dist < 220 && dist < minDist) {
-          minDist = dist;
-          target = { x: ammo.x, y: ammo.y, isAmmo: true };
+          if (isInsideBarrier(ammo.x, ammo.y)) continue; 
+          
+          const dist = distance(this.x, this.y, ammo.x, ammo.y);
+          let score = dist * 0.1; 
+          
+          if (koth) {
+              const distToKOTH = distance(koth.x, koth.y, ammo.x, ammo.y);
+              if (distToKOTH < CONFIG.KOTH_ZONE_RADIUS * 1.5) {
+                  score *= 0.1; 
+              }
+          }
+
+          if (score < bestScore) {
+              bestScore = score;
+              closestGoal = { type: 'Ammo', x: ammo.x, y: ammo.y, word: ammo.word };
+          }
+      }
+    }
+    
+    // 2. KOTH 
+    if (GameState.kothZone) {
+        const dist = distance(this.x, this.y, GameState.kothZone.x, GameState.kothZone.y);
+        const score = dist * 0.3; 
+        if (score < bestScore) {
+            bestScore = score;
+            closestGoal = { type: 'KOTH', x: GameState.kothZone.x, y: GameState.kothZone.y };
         }
-      }
     }
-
-    if (!target && this.ammoCount > 0) {
-      // Prefer nearest enemy; if none nearby, engage nearest other player (PvP)
-      for (const f of GameState.fighters) {
-        if (!f.alive || f === this) continue;
-        const dist = distance(this.x, this.y, f.x, f.y);
-        const isPreferred = f.isEnemy ? 1 : (!isZephyr(f.username) ? 2 : 3); // enemies first, then players, avoid Zephyr last
-        const score = dist * isPreferred;
-        if (score < minDist) { minDist = score; target = f; }
-      }
-    }
-
-    this.moveAndAttack(target);
+    
+    return closestGoal;
   }
 
-  updateZephyrAI(dt) {
-    // Zephyr: bottom-center anchor; breaks away to heal injured players; avoids earning points
-    let target = null;
-    let best = Infinity;
+  findClosestTarget() {
+      let attackTarget = null;
+      let minDist = Infinity;
+      
+      for (const f of GameState.fighters.slice()) {
+          if (!f.alive || f === this) continue;
 
-    // Seek lowest HP non-enemy, excluding self
-    for (const f of GameState.fighters) {
-      if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
-      const hpPct = f.hp / f.maxHp;
-      const dist = distance(this.x, this.y, f.x, f.y);
-      const score = hpPct * 2 + dist / 600; // prioritize injured and closer
-      if (score < best) { best = score; target = f; }
-    }
-
-    // If no one needs help, drift back towards anchor
-    if (!target) {
-      const dx = this.anchorX - this.x;
-      const dy = this.anchorY - this.y;
-      const d = Math.sqrt(dx*dx + dy*dy) || 1;
-      if (d > 30) { this.vx = (dx / d) * (this.speed * 0.6); this.vy = (dy / d) * (this.speed * 0.6); }
-      else { this.vx *= 0.9; this.vy *= 0.9; }
-      return;
-    }
-
-    // Move near the target; if close, pulse heals
-    const dx = target.x - this.x;
-    const dy = target.y - this.y;
-    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-
-    if (dist > 140) {
-      this.vx = (dx / dist) * (this.speed * 0.85);
-      this.vy = (dy / dist) * (this.speed * 0.85);
-    } else {
-      this.vx *= 0.8; this.vy *= 0.8;
-      const now = performance.now();
-      if (now - this.lastAttack > this.attackCooldown) {
-        // Zephyr uses wand heal; no ammo required; doesn't earn points
-        const proj = new Projectile(this, target);
-        GameState.projectiles.push(proj);
-        this.lastAttack = now;
+          // Zephyr only targets injured allies
+          if (isZephyr(this.username)) {
+              if (!isAlly(this, f) || f.hp / f.maxHp > 0.95) continue;
+          } else {
+              // Everyone else targets the nearest non-ally
+              if (isAlly(this, f)) continue; 
+          }
+          
+          const dist = distance(this.x, this.y, f.x, f.y);
+          if (dist < minDist) {
+              minDist = dist;
+              attackTarget = f;
+          }
       }
-    }
+      return { target: attackTarget, distance: minDist };
   }
+  
+  updatePlayerAI(dt, attackBlocked) {
+    const now = performance.now();
+    let movementTarget = null;
 
-  updateEnemyAI(dt) {
-    // Allied enemies: descend and target any non-enemy (players + Zephyr)
-    this.y += 18 * dt;
-
-    if (this.y > GameState.height + 50) { this.destroy(); return; }
-
-    let target = null;
-    let minDist = 220;
-    for (const f of GameState.fighters) {
-      if (!f.alive || f.isEnemy) continue;
-      const dist = distance(this.x, this.y, f.x, f.y);
-      if (dist < minDist) { minDist = dist; target = f; }
+    if (this.currentGoal && now - this.goalStartTime < this.maxGoalDuration) {
+        if (this.currentGoal.type === 'Ammo' && !GameState.ammo.find(a => a.word === this.currentGoal.word)) {
+            this.currentGoal = null;
+        } 
     }
 
-    if (target) {
-      const dx = target.x - this.x;
-      const dist = Math.sqrt(dx*dx + (target.y - this.y) ** 2) || 1;
-      this.vx = (dx / dist) * this.speed * 0.45;
-      const now = performance.now();
-      if (now - this.lastAttack > this.attackCooldown && dist < 160) {
-        this.attackTarget(target);
-        this.lastAttack = now;
-      }
-    }
-  }
-
-  moveAndAttack(target) {
-    if (target) {
-      const dx = target.x - this.x;
-      const dy = target.y - this.y;
-      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      if (target.isAmmo || dist > 160) {
-        this.vx = (dx / dist) * this.speed;
-        this.vy = (dy / dist) * this.speed;
-      } else {
-        this.vx *= 0.85; this.vy *= 0.85;
-        const now = performance.now();
-        if (now - this.lastAttack > this.attackCooldown && this.ammoCount > 0) {
-          this.attackTarget(target);
-          this.lastAttack = now;
+    if (!this.currentGoal) {
+        this.currentGoal = this.findClosestObjective();
+        if (this.currentGoal) {
+            this.goalStartTime = now;
         }
-      }
+    }
+
+    if (this.currentGoal) {
+        movementTarget = this.currentGoal.target || { x: this.currentGoal.x, y: this.currentGoal.y };
+        this.moveTactically(movementTarget, attackBlocked, dt);
     } else {
-      this.vx *= 0.9; this.vy *= 0.9;
+        // Pacing movement if no objective
+        this.vx += (Math.random() - 0.5) * this.currentBaseSpeed * dt;
+        this.vy += (Math.random() - 0.5) * this.currentBaseSpeed * dt;
+    }
+    
+    // Attack Logic (Simultaneous)
+    const { target: attackTarget, distance: dist } = this.findClosestTarget();
+    
+    if (attackTarget) {
+        const isPrimaryRanged = WEAPONS[this.weaponType].range > 100;
+        
+        // Priority 1: Primary Attack (if range and resources allow)
+        const hasPrimaryAmmo = (this.weaponType === 'wand' || !isPrimaryRanged) || this.ammoReserve > 0;
+        
+        if (hasPrimaryAmmo && now - this.lastAttack > this.attackCooldown && dist < this.attackRange) {
+            this.attackTarget(attackTarget, this.weaponType);
+            this.lastAttack = now;
+        } 
+        // Priority 2: Melee Punch Fallback
+        else if (now - this.lastAttack > WEAPONS.punch.cooldown && dist < WEAPONS.punch.range) {
+            this.attackTarget(attackTarget, 'punch');
+            this.lastAttack = now;
+        }
     }
   }
 
-  attackTarget(target) {
+  updateZephyrAI(dt, attackBlocked) {
+    this.updatePlayerAI(dt, attackBlocked);
+  }
+
+  updateEnemyAI(dt, attackBlocked) {
+    this.updatePlayerAI(dt, attackBlocked);
+  }
+
+
+  attackTarget(target, weaponOverride = null) {
     if (!target || !target.alive) return;
-    // Players spend ammo; Zephyr doesn't use ammo to heal
-    if (!this.isEnemy && !isZephyr(this.username) && this.ammoCount > 0) this.ammoCount--;
+    
+    const usedWeapon = weaponOverride || this.weaponType;
+
+    if (WEAPONS[usedWeapon].damage > 0 && usedWeapon !== 'wand') { 
+        const isRanged = WEAPONS[usedWeapon].range > 100;
+        
+        if (isRanged && !this.isBot && !isZephyr(this.username)) {
+            if (this.ammoReserve > 0) {
+                this.ammoReserve--;
+                this.ammoCount = Math.floor(this.ammoReserve / 10);
+            } else {
+                return; 
+            }
+        }
+    }
+    
+    const originalWeaponType = this.weaponType;
+    this.weaponType = usedWeapon; 
+    
     const proj = new Projectile(this, target);
     GameState.projectiles.push(proj);
+
+    this.weaponType = originalWeaponType; 
   }
 
-  takeDamage(amount, attacker) {
+  takeDamage(amount, attacker, isCrit = false, reason) {
     this.hp -= amount;
     const isHeal = amount < 0;
-    const dmgColor = isHeal ? '#0f8' : '#f66';
-    showFloatingText(this.x, this.y - 20, `${isHeal ? '+' : '-'}${Math.abs(Math.round(amount))}`, dmgColor);
+    const dmgColor = isCrit ? '#ff0' : (isHeal ? '#0f8' : (reason === 'idle' || reason === 'zone' ? '#f80' : '#f66'));
+    
+    let text = `${isHeal ? '+' : '-'}${Math.abs(Math.round(amount))}`;
+    if (isCrit) text = `CRIT! ${text}`;
 
-    // Points: attacker earns on damaging/finishing only if attacker is a PLAYER and NOT Zephyr.
-    // Finisher bonus on death; KOTH handled separately.
-    if (!isHeal && attacker && !attacker.isEnemy && !isZephyr(attacker.username)) {
+    showFloatingText(this.x, this.y - 20, text, dmgColor, isCrit);
+
+    if (amount > 0 && attacker && !attacker.isEnemy && !attacker.isBot && !isZephyr(attacker.username)) {
       const pdata = getPlayerData(attacker.username);
-      pdata.points += Math.min(Math.abs(amount), 5); // small damage drip points
+      pdata.points += CONFIG.POINTS_HIT;
+      showFloatingPoints(attacker.x, attacker.y - 35, `+${CONFIG.POINTS_HIT} Pts`, 'Points');
     }
 
     if (this.hp <= 0) this.die(attacker);
@@ -683,16 +1200,33 @@ ${line4}`;
     this.alive = false;
     this.element.style.opacity = '0.3';
     GameState.stats.kills++;
-    if (killer && !killer.isEnemy && !isZephyr(killer.username)) {
+    
+    if (killer && !killer.isEnemy && !killer.isBot && !isZephyr(killer.username)) {
       const data = getPlayerData(killer.username);
       data.kills++;
-      data.xp += 50;
-      data.points += 50; // kill bonus
-      if (data.xp >= CONFIG.XP_CURVE[data.level] && data.level < 10) {
+      data.xp += CONFIG.XP_KILL;
+      data.points += CONFIG.POINTS_KILL; 
+      
+      showFloatingPoints(killer.x, killer.y - 35, `+${CONFIG.XP_KILL} XP`, 'XP');
+      showFloatingPoints(killer.x, killer.y - 50, `+${CONFIG.POINTS_KILL} Pts (Kill)`, 'Points');
+      
+      if (data.level < 10 && data.xp >= CONFIG.XP_CURVE[data.level]) {
         data.level++;
-        showFloatingText(killer.x, killer.y - 40, 'LEVEL UP!', '#ff0');
+        killer.level = data.level;
+        showFloatingPoints(killer.x, killer.y - 65, 'LEVEL UP!', 'XP');
       }
     }
+    
+    if (!this.isEnemy && !this.isBot && !isZephyr(this.username)) {
+        const data = getPlayerData(this.username);
+        data.points -= CONFIG.POINTS_DEATH_PENALTY;
+        data.points = Math.max(0, data.points); 
+        data.deaths++;
+        showFloatingPoints(this.x, this.y - 65, `-${CONFIG.POINTS_DEATH_PENALTY} Pts (Death)`, 'Points');
+    }
+    
+    this.currentGoal = null;
+
     setTimeout(() => { this.destroy(); }, 1000);
   }
 
@@ -703,31 +1237,42 @@ ${line4}`;
   }
 }
 
-// =====================
-// SPAWNERS
-// =====================
+// =========================================================
+// 8. SPAWNING AND CHAT MANAGEMENT
+// =========================================================
+
 function spawnPlayer(username) {
   const existing = GameState.fighters.find(f => f.username === username && f.alive && !f.isEnemy);
   if (existing) {
-    existing.hp = Math.min(existing.maxHp, existing.hp + 16);
-    showFloatingText(existing.x, existing.y - 30, '+16 HP', '#0f0');
+    const healAmount = 16;
+    existing.hp = Math.min(existing.maxHp, existing.hp + healAmount);
+    showFloatingText(existing.x, existing.y - 30, `+${healAmount} HP`, '#0f0');
     return existing;
   }
-  const fighter = new Fighter(username, false, false);
+  
+  const fighter = new Fighter(username, false, false, false);
   GameState.fighters.push(fighter);
   return fighter;
 }
 
 function spawnAIEnemy() {
-  const fighter = new Fighter('AI_' + Date.now(), true, false);
-  GameState.fighters.push(fighter);
-  return fighter;
+  const currentBots = GameState.fighters.filter(f => f.isBot && f.alive).length;
+  const totalPlayers = GameState.fighters.filter(f => !f.isEnemy && f.alive).length;
+  
+  if (totalPlayers < 3 && currentBots < 2 && Math.random() < 0.6) {
+      const botName = `BOT_${Math.floor(Math.random() * 999)}`;
+      const fighter = new Fighter(botName, false, false, true);
+      GameState.fighters.push(fighter);
+      addChatLine("System", `[Bot] ${botName} deployed to stabilize the arena.`);
+  } else {
+      const fighter = new Fighter('AI_' + Date.now().toString().slice(-4), true, false, false);
+      GameState.fighters.push(fighter);
+  }
 }
 
 function spawnAmmo(username, message) {
-  const words = message.trim().split(/\s+/).filter(w => w.length > 0);
+  const words = message.trim().split(/\s+/).filter(w => w.length > 0 && w.length <= 15);
   for (const word of words) {
-    if (word.length > 15) continue;
     const ammo = new Ammo(word);
     GameState.ammo.push(ammo);
   }
@@ -735,70 +1280,259 @@ function spawnAmmo(username, message) {
 
 function addChatLine(username, message) {
   GameState.chatMessages.push({ username, message, time: Date.now() });
-  const retainer = document.getElementById('chat-retainer');
+  const retainer = document.getElementById('chat-retainer'); 
+  
   const line = document.createElement('div');
   line.className = 'chat-line';
   line.textContent = `${username}: ${message.substring(0, 50)}`;
-  retainer.appendChild(line);
-  while (retainer.children.length > 4) retainer.children[1].remove();
-  retainer.scrollTop = retainer.scrollHeight;
+  
+  if (retainer) {
+      retainer.appendChild(line);
+      
+      while (retainer.children.length > CONFIG.MAX_CHAT_LINES + 1) {
+        if (retainer.children.length > 1) {
+            retainer.children[1].remove(); 
+        } else {
+            break;
+        }
+      }
+      retainer.scrollTop = retainer.scrollHeight;
+  }
 }
 
-// =====================
-// STREAMLABS (optional)
-// =====================
+function spawnBoss() {
+  if (GameState.boss && GameState.boss.alive) return;
+  
+  const boss = new Fighter('BOSS', true, true, false);
+  boss.x = GameState.width / 2;
+  boss.y = GameState.height / 2 + CONFIG.NEZ_SIZE / 2 + 50; 
+  boss.color = '#f00';
+  boss.ascii = '∆';
+  GameState.fighters.push(boss);
+  GameState.boss = boss;
+  
+  const alert = document.getElementById('boss-alert');
+  alert.style.display = 'block';
+  setTimeout(() => { alert.style.display = 'none'; }, 2500);
+  
+  showFloatingText(GameState.width / 2, 100, 'BOSS SPAWNED!', '#f00');
+}
+
+function spawnZephyr() {
+  const z = new Fighter("Zephyr", false, false, true); 
+  GameState.fighters.push(z);
+  return z;
+}
+
+// =========================================================
+// 9. ZONE MANAGEMENT
+// =========================================================
+
+function initializeZones() {
+    GameState.centerX = window.innerWidth / 2;
+    GameState.centerY = window.innerHeight / 2;
+    GameState.width = window.innerWidth;
+    GameState.height = window.innerHeight;
+    GameState.noEntryZoneBarrier = document.getElementById('no-entry-zone-barrier'); 
+
+    // Position the invisible square barrier
+    const size = CONFIG.NEZ_SIZE;
+    const el = GameState.noEntryZoneBarrier;
+
+    if (el) {
+        el.style.width = `${size}px`;
+        el.style.height = `${size}px`;
+        el.style.left = `${GameState.centerX - size / 2}px`;
+        el.style.top = `${GameState.centerY - size / 2}px`;
+    }
+}
+
+function moveKOTHZone() {
+    if (GameState.kothZone && GameState.kothZone.element) {
+        GameState.kothZone.element.remove();
+    }
+    
+    let x, y, safeDist;
+    const minDistanceToCenter = CONFIG.NEZ_SIZE + CONFIG.KOTH_ZONE_RADIUS * 2;
+    
+    do {
+        x = 100 + Math.random() * (GameState.width - 200);
+        y = 100 + Math.random() * (GameState.height - 200);
+        safeDist = distance(x, y, GameState.centerX, GameState.centerY);
+    } while (isInsideBarrier(x, y)); 
+
+    GameState.kothZone = { x, y };
+    GameState.kothPointsAccumulated = 0; 
+
+    const zoneEl = document.createElement('div');
+    zoneEl.className = 'koth-zone';
+    const radius = CONFIG.KOTH_ZONE_RADIUS;
+    zoneEl.style.left = `${x - radius}px`;
+    zoneEl.style.top = `${y - radius}px`;
+    zoneEl.style.width = `${radius * 2}px`;
+    zoneEl.style.height = `${radius * 2}px`;
+    GameState.container.appendChild(zoneEl);
+    GameState.kothZone.element = zoneEl;
+    showFloatingText(x, y - 50, 'KOTH ZONE RELOCATED!', '#ff0');
+}
+
+function updateKOTHZone(now) {
+    
+    if (GameState.kothZone && (GameState.kothPointsAccumulated >= CONFIG.KOTH_POINTS_TO_MOVE ||
+        now - GameState.lastKothMove >= CONFIG.KOTH_RELOCATE_INTERVAL_MS)) {
+        moveKOTHZone();
+        GameState.lastKothMove = now;
+    }
+    
+    if (!GameState.kothZone) {
+        moveKOTHZone();
+        GameState.lastKothMove = now;
+    }
+}
+
+// =========================================================
+// 10. HUD AND STATS
+// =========================================================
+
+function updateLeaderboard() {
+  const leaderboard = document.getElementById('leaderboard');
+  
+  const players = Object.values(GameState.playerData)
+    .filter(p => p.username !== "Zephyr") 
+    .sort((a, b) => Math.floor(b.points) - Math.floor(a.points))
+    .slice(0, 10);
+
+  let html = '<h3>= TOP FIGHTERS =</h3>';
+  
+  if (players.length === 0) {
+    html += '<div style="color: #666; text-align: center; padding: 10px;">Waiting for players...</div>';
+  } else {
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      const nameClass = i === 0 ? 'leader-name' : ''; 
+      
+      html += `
+        <div class="leader-entry">
+          <span class="${nameClass}">${i + 1}. ${p.username.substring(0, 12)}</span>
+          <span class="leader-score">${Math.floor(p.points)}pts | L${p.level} | K${p.kills}</span>
+        </div>
+      `;
+    }
+  }
+
+  html += '<div id="leaderboard-timer"><div id="leaderboard-bar"></div></div>';
+  
+  leaderboard.innerHTML = html;
+}
+
+function updateStats() {
+  const now = performance.now();
+
+  if (now - GameState.lastEnemyAmmoRegen > CONFIG.ENEMY_AMMO_REGEN_TIME) {
+      GameState.lastEnemyAmmoRegen = now;
+  }
+
+  const timeElapsed = now - GameState.lastLeaderboardUpdate;
+  const timeRemaining = CONFIG.LEADERBOARD_REFRESH_INTERVAL - (timeElapsed % CONFIG.LEADERBOARD_REFRESH_INTERVAL);
+  const percentage = (timeRemaining / CONFIG.LEADERBOARD_REFRESH_INTERVAL) * 100;
+  
+  const bar = document.getElementById('leaderboard-bar');
+  if (bar) {
+      bar.style.width = `${percentage}%`;
+  }
+
+  if (timeElapsed >= CONFIG.LEADERBOARD_REFRESH_INTERVAL) {
+    updateLeaderboard();
+    GameState.lastLeaderboardUpdate = now;
+  }
+
+  const players = GameState.fighters.filter(f => !f.isEnemy && f.alive && !f.isBot).length;
+  const enemies = GameState.fighters.filter(f => f.isEnemy && f.alive).length;
+  const bots = GameState.fighters.filter(f => f.isBot && f.alive && !isZephyr(f.username)).length;
+  const total = GameState.fighters.filter(f => f.alive).length;
+  const ammo = GameState.ammo.filter(a => !a.collected).length;
+
+  document.getElementById('player-count').textContent = players + (bots > 0 ? ` (+${bots} Bots)` : '');
+  document.getElementById('ai-count').textContent = enemies;
+  document.getElementById('total-fighters').textContent = total;
+  document.getElementById('ammo-count').textContent = ammo;
+  document.getElementById('kill-count').textContent = GameState.stats.kills;
+}
+
+// =========================================================
+// 11. GAME LOOP
+// =========================================================
+function gameLoop() {
+  const now = performance.now();
+  const dt = Math.min((now - GameState.lastUpdate) / 1000, 0.08); 
+  GameState.lastUpdate = now;
+
+  initializeZones(); 
+
+  for (const fighter of GameState.fighters.slice()) fighter.update(dt);
+  for (const proj of GameState.projectiles.slice()) proj.update(dt);
+  for (const ammo of GameState.ammo.slice()) ammo.update(dt);
+
+  if (now - GameState.lastAISpawn > CONFIG.AI_SPAWN_INTERVAL) {
+    spawnAIEnemy();
+    GameState.lastAISpawn = now;
+  }
+
+  updateKOTHZone(now);
+  updateStats();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// =========================================================
+// 12. STREAMLABS CONNECTION / MOCK DATA
+// =========================================================
+
 let socket = null;
 let reconnectAttempts = 0;
+
 function connectStreamlabs() {
+  if (CONFIG.TEST_MODE) return;
   if (!CONFIG.SOCKET_TOKEN || CONFIG.SOCKET_TOKEN.length < 20) {
     const cs = document.getElementById('connection-status');
-    cs.textContent = '> Invalid Token';
+    cs.textContent = '> TOKEN ERROR';
     cs.className = 'disconnected';
     return;
   }
+  
   try {
-    const eioVersion = reconnectAttempts % 2 === 0 ? '4' : '3';
+    const eioVersion = '4';
     const url = `wss://sockets.streamlabs.com/socket.io/?token=${CONFIG.SOCKET_TOKEN}&transport=websocket&EIO=${eioVersion}`;
     socket = new WebSocket(url);
 
     socket.onopen = () => {
       reconnectAttempts = 0;
-      const cs = document.getElementById('connection-status');
-      cs.textContent = 'Connected';
-      cs.className = 'connected';
+      document.getElementById('connection-status').textContent = 'Connected';
+      document.getElementById('connection-status').className = 'connected';
     };
     socket.onmessage = (event) => {
       const msg = event.data;
-      if (msg.startsWith('2')) socket.send('3'); // Pong
+      if (msg.startsWith('2')) socket.send('3');
       else if (msg.startsWith('42')) {
         try {
-          const jsonStr = msg.substring(2);
-          const data = JSON.parse(jsonStr);
+          const data = JSON.parse(msg.substring(2));
           handleStreamlabsEvent(data);
-        } catch (e) {}
+        } catch (e) { console.error("Error parsing Streamlabs message:", e); }
       }
     };
-    socket.onerror = () => {
-      const cs = document.getElementById('connection-status');
-      cs.textContent = '> Error';
-      cs.className = 'disconnected';
-    };
     socket.onclose = () => {
-      const cs = document.getElementById('connection-status');
-      cs.textContent = 'Disconnected';
-      cs.className = 'disconnected';
+      document.getElementById('connection-status').textContent = 'Disconnected';
+      document.getElementById('connection-status').className = 'disconnected';
       reconnectAttempts++;
       if (reconnectAttempts < 5) {
-        const delay = Math.min(5000 * reconnectAttempts, 30000);
-        setTimeout(connectStreamlabs, delay);
+        setTimeout(connectStreamlabs, Math.min(5000 * reconnectAttempts, 30000));
       } else {
-        cs.textContent = 'Failed';
+        document.getElementById('connection-status').textContent = 'Failed';
       }
     };
   } catch (e) {
-    const cs = document.getElementById('connection-status');
-    cs.textContent = '> Failed';
-    cs.className = 'disconnected';
+    document.getElementById('connection-status').textContent = '> Failed';
+    document.getElementById('connection-status').className = 'disconnected';
   }
 }
 
@@ -811,188 +1545,89 @@ function handleStreamlabsEvent(data) {
   if (eventType === 'event') {
     const messages = eventData.message || [];
     for (const msg of messages) {
-      const username = msg.name || msg.from || 'Viewer';
+      const username = msg.name || msg.from || 'Viewer'; 
       const text = msg.message || "";
-      spawnPlayer(username);
-      if (text && text.length > 0) {
-        spawnAmmo(username, text);
-        addChatLine(username, text);
+      
+      if (username !== "Streamlabs") {
+        spawnPlayer(username);
+        if (text && text.length > 0) {
+          spawnAmmo(username, text);
+          addChatLine(username, text);
+        }
       }
     }
   }
 
   if (eventType === 'donation' || eventType === 'tip') {
     spawnBoss();
+    addChatLine('System', `BOSS ALERT: ${eventData.name || 'A donor'} summoned the boss!`);
   }
 }
 
-// =====================
-// BOSS & KOTH
-// =====================
-function spawnBoss() {
-  if (GameState.boss && GameState.boss.alive) return;
-  const boss = new Fighter('BOSS', true, true);
-  boss.x = GameState.width / 2;
-  boss.y = GameState.height / 2;
-  boss.color = '#f00';
-  boss.ascii = '@';
-  GameState.fighters.push(boss);
-  GameState.boss = boss;
-  showFloatingText(GameState.width / 2, 100, 'A BOSS SPAWNED!', '#f00');
-}
+// =========================================================
+// 13. INITIALIZATION (Wrapped in window.onload)
+// =========================================================
 
-function updateKOTHZone() {
-  const now = performance.now();
-  if (!GameState.kothZone || now - GameState.lastKOTHMove > 25000) {
-    if (GameState.kothZone && GameState.kothZone.element) {
-      GameState.kothZone.element.remove();
-    }
-    const x = 220 + Math.random() * (GameState.width - 440);
-    const y = 220 + Math.random() * (GameState.height - 440);
-    GameState.kothZone = { x, y };
-    GameState.lastKOTHMove = now;
+function initGame() {
+    // 1. Initialize core variables
+    GameState.container = document.getElementById('game-container');
+    
+    // 2. Setup core entities and zones
+    initializeZones(); 
+    spawnZephyr();
+    updateLeaderboard(); 
+    GameState.lastLeaderboardUpdate = performance.now();
+    updateKOTHZone(performance.now()); 
 
-    const zoneEl = document.createElement('div');
-    zoneEl.className = 'koth-zone';
-    zoneEl.style.left = `${x - CONFIG.KOTH_ZONE_RADIUS}px`;
-    zoneEl.style.top = `${y - CONFIG.KOTH_ZONE_RADIUS}px`;
-    zoneEl.style.width = `${CONFIG.KOTH_ZONE_RADIUS * 2}px`;
-    zoneEl.style.height = `${CONFIG.KOTH_ZONE_RADIUS * 2}px`;
-    GameState.container.appendChild(zoneEl);
-    GameState.kothZone.element = zoneEl;
-  }
+    // 3. Start chat and mock data
+    addChatLine('System', 'Welcome to ASCII Battle Royale!');
+    addChatLine('System', 'Chat words are ammo, fight for the KOTH zone!');
 
-  // Award KOTH points only to players (exclude Zephyr).
-  if (GameState.kothZone) {
-    for (const f of GameState.fighters) {
-      if (!f.alive || f.isEnemy || isZephyr(f.username)) continue;
-      const d = distance(f.x, f.y, GameState.kothZone.x, GameState.kothZone.y);
-      if (d <= CONFIG.KOTH_ZONE_RADIUS) {
-        const pdata = getPlayerData(f.username);
-        // points per second scaled by dt in loop; here we tick coarse in stats update, so drip modestly
-        pdata.points += CONFIG.KOTH_POINTS_PER_SEC * 0.5; // ~every loop cycle it adds small amount
+    if (CONFIG.TEST_MODE) {
+      document.getElementById('connection-status').textContent = 'TEST MODE ACTIVE (Terminal Display)';
+      document.getElementById('connection-status').className = 'connected';
+      
+      // Mock data functions for testing
+      function spawnTestFighters() {
+        const testNames = ['Tank_A','Soldier_B','Gunslinger_C','Sniper_D','Scout_E','Samurai_F','Bowman_G','Ninja_H'];
+        const name = testNames[Math.floor(Math.random() * testNames.length)] + Math.floor(Math.random() * 99);
+        const f = spawnPlayer(name);
+        
+        const testWords = ['attack','defend','strike','heal','fire','ice','zap','shield','loot','burn','freeze','shock', 'poison', 'ammo', 'move'];
+        const message = [];
+        for (let i = 0; i < Math.floor(Math.random() * 4) + 1; i++) {
+          message.push(testWords[Math.floor(Math.random() * testWords.length)]);
+        }
+        
+        spawnAmmo(name, message.join(' '));
+        addChatLine(name, message.join(' '));
       }
+      
+      setTimeout(() => {
+        spawnTestFighters();
+        setInterval(spawnTestFighters, 4000); 
+      }, 2000);
+      
+      setTimeout(() => {
+        spawnBoss();
+      }, 30000);
+      
+    } else {
+        connectStreamlabs();
     }
-  }
-}
 
-// =====================
-// LEADERBOARD & STATS
-// =====================
-function updateLeaderboard() {
-  const leaderboard = document.getElementById('leaderboard');
-  const players = Object.values(GameState.playerData)
-    .filter(p => !isZephyr(p.username)) // exclude Zephyr from scoring
-    .sort((a, b) => Math.floor(b.points) - Math.floor(a.points))
-    .slice(0, 10);
-
-  let html = '<h3>* TOP FIGHTERS</h3>';
-  for (let i = 0; i < players.length; i++) {
-    const p = players[i];
-    html += `
-      <div class="leader-entry">
-        <span class="leader-name">${i + 1}. ${p.username.substring(0, 12)}</span>
-        <span class="leader-score">Pts ${Math.floor(p.points)} | L${p.level}</span>
-      </div>
-    `;
-  }
-  if (players.length === 0) {
-    html += '<div class="leader-entry" style="color: #666;">No players yet ...</div>';
-  }
-  leaderboard.innerHTML = html;
-}
-
-function updateStats() {
-  const players = GameState.fighters.filter(f => !f.isEnemy && f.alive).length;
-  const enemies = GameState.fighters.filter(f => f.isEnemy && f.alive).length;
-  const total = GameState.fighters.filter(f => f.alive).length;
-  const ammo = GameState.ammo.filter(a => !a.collected).length;
-
-  document.getElementById('player-count').textContent = players;
-  document.getElementById('ai-count').textContent = enemies;
-  document.getElementById('total-fighters').textContent = total;
-  document.getElementById('ammo-count').textContent = ammo;
-  document.getElementById('kill-count').textContent = GameState.stats.kills;
-}
-
-// =====================
-// GAME LOOP
-// =====================
-function gameLoop() {
-  const now = performance.now();
-  const dt = Math.min((now - GameState.lastUpdate) / 1000, 0.08);
-  GameState.lastUpdate = now;
-
-  for (const fighter of GameState.fighters.slice()) fighter.update(dt);
-  for (const proj of GameState.projectiles.slice()) proj.update(dt);
-  for (const ammo of GameState.ammo.slice()) ammo.update(dt);
-
-  if (now - GameState.lastAISpawn > CONFIG.AI_SPAWN_INTERVAL) {
-    spawnAIEnemy();
-    GameState.lastAISpawn = now;
-  }
-
-  updateKOTHZone();
-  updateStats();
-
-  if (Math.floor(now / 2500) !== Math.floor((now - dt * 1000) / 2500)) updateLeaderboard();
-
-  requestAnimationFrame(gameLoop);
-}
-
-// =====================
-// TEST MODE & INIT
-// =====================
-function spawnTestFighters() {
-  const testNames = ['TestWarrior','TestMage','TestRogue','TestTank','TestRanger','TestHealer'];
-  const name = testNames[Math.floor(Math.random() * testNames.length)] + Math.floor(Math.random() * 100);
-  const f = spawnPlayer(name);
-  const testWords = ['attack','defend','heal','fire','ice','storm'];
-  const message = [];
-  for (let i = 0; i < 2; i++) message.push(testWords[Math.floor(Math.random() * testWords.length)]);
-  spawnAmmo(name, message.join(' '));
-  addChatLine(name, message.join(' '));
-  console.log("[TEST] Spawned:", name, f.color);
-}
-
-// Always spawn Zephyr as persistent anchor
-function spawnZephyr() {
-  const z = new Fighter("Zephyr", false, false);
-  z.x = GameState.width / 2;
-  z.y = GameState.height - 80;     // bottom-center anchor
-  z.color = "#0ff";                // cyan beacon
-  z.ascii = "@";                   // distinct hero glyph
-  z.weaponType = "wand";           // gentle heal pulses
-  z.attackCooldown = 2200;         // faster support cadence
-  GameState.fighters.push(z);
-  GameState.playerData["Zephyr"] = getPlayerData("Zephyr"); // ensures points=0 and excluded
-  return z;
+    // 4. Start the game loop
+    gameLoop();
 }
 
 window.addEventListener('resize', () => {
   GameState.width = window.innerWidth;
   GameState.height = window.innerHeight;
+  initializeZones(); 
 });
 
-// Initialize
-spawnZephyr();
-
-if (!CONFIG.TEST_MODE) {
-  connectStreamlabs();
-} else {
-  const cs = document.getElementById('connection-status');
-  cs.textContent = 'TEST MODE';
-  cs.style.color = '#fa0';
-}
-
-gameLoop();
-
-if (CONFIG.TEST_MODE) {
-  setTimeout(() => {
-    spawnTestFighters();
-    setInterval(spawnTestFighters, 20000);
-  }, 2000);
-}
+window.onload = initGame;
 </script>
 </body>
 </html>
+```
