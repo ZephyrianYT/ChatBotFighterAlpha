@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCII Battle Royale</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: transparent;
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+}
+
+#game-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
+/* HUD */
+#stats-panel {
+  position: fixed; top: 20px; left: 20px;
+  background: rgba(0,0,0,0.85);
+  padding: 12px;
+  border: 2px solid #333;
+  font-size: 11px;
+  z-index: 1000;
+  min-width: 220px;
+  color: #888;
+  border-radius: 4px;
+}
+#stats-panel h3 {
+  color: #0f0;
+  margin-bottom: 8px;
+  font-size: 13px;
+  text-shadow: 0 0 5px #0f0;
+}
+.stat-row { margin: 4px 0; display: flex; justify-content: space-between; }
+.stat-value { color: #0ff; font-weight: bold; }
+
+#leaderboard {
+  position: fixed; bottom: 20px; right: 20px;
+  background: rgba(0,0,0,0.85);
+  padding: 12px;
+  border: 2px solid #333;
+  font-size: 11px;
+  z-index: 1000;
+  min-width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+#leaderboard h3 {
+  color: #ff0;
+  margin-bottom: 8px;
+  font-size: 13px;
+  text-shadow: 0 0 5px #ff0;
+}
+.leader-entry { color: #888; margin: 3px 0; display: flex; justify-content: space-between; }
+.leader-name { color: #0ff; }
+.leader-score { color: #f80; }
+
+#chat-retainer {
+  position: fixed; bottom: 20px; left: 20px;
+  background: rgba(0,0,0,0.85);
+  padding: 10px;
+  border: 2px solid #333;
+  max-width: 350px;
+  z-index: 999;
+  max-height: 120px;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+#chat-retainer h4 {
+  color: #0f0;
+  margin-bottom: 5px;
+  font-size: 11px;
+  text-shadow: 0 0 5px #0f0;
+}
+.chat-line { color: #888; margin: 3px 0; font-size: 10px; word-wrap: break-word; }
+
+/* Entities & FX */
+.entity {
+  position: absolute;
+  font-size: 14px;
+  white-space: pre;
+  pointer-events: none;
+  line-height: 1.2;
+  font-weight: bold;
+  text-shadow: 0 0 3px currentColor;
+  transition: none;
+}
+.projectile {
+  position: absolute;
+  font-size: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+  font-weight: bold;
+  animation: pulse 0.6s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
+}
+.ammo-particle {
+  position: absolute;
+  font-size: 11px;
+  color: #fa0;
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 0 5px #fa0;
+  animation: float 3s ease-in-out infinite;
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+.damage-number {
+  position: absolute;
+  font-size: 13px;
+  font-weight: bold;
+  animation: fade-up 1.6s ease-out forwards;
+  pointer-events: none;
+  text-shadow: 0 0 5px currentColor;
+}
+@keyframes fade-up {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-24px); opacity: 0; }
+}
+.heal-number { color: #0f0; }
+.fire-number { color: #f40; }
+.ice-number { color: #0cf; }
+.poison-number { color: #8f0; }
+
+/* Connection */
+#connection-status {
+  position: fixed;
+  top: 20px; right: 20px;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.85);
+  border: 2px solid #333;
+  font-size: 11px;
+  z-index: 1000;
+  color: #888;
+  border-radius: 4px;
+}
+#connection-status.connected {
+  color: #0f0;
+  text-shadow: 0 0 5px #0f0;
+}
+
+/* KOTH zone */
+.koth-zone {
+  position: absolute;
+  border: 2px dashed #ff0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.25;
+  animation: zone-pulse 3s ease-in-out infinite;
+}
+@keyframes zone-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.03); }
+}
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+
+<!-- Event Alert Display (15-second notifications) -->
+<div id="event-alert" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+  background: rgba(0,0,0,0.95); border: 3px solid #0ff; color: #0ff; padding: 20px 30px; 
+  font-size: 18px; z-index: 9999; display: none; text-align: center; border-radius: 8px; 
+  box-shadow: 0 0 20px #0ff; min-width: 400px; max-width: 600px;">
+  <div id="alert-title" style="font-size: 24px; font-weight: bold; margin-bottom: 10px;"></div>
+  <div id="alert-message" style="font-size: 16px;"></div>
+</div>
+
+<div id="stats-panel">
+  <h3>> BATTLE STATS</h3>
+  <div class="stat-row"><span>Players:</span><span class="stat-value" id="player-count">0</span></div>
+  <div class="stat-row"><span>AI Enemies:</span><span class="stat-value" id="ai-count">0</span></div>
+  <div class="stat-row"><span>Active:</span><span class="stat-value" id="total-fighters">0</span></div>
+  <div class="stat-row"><span>Ammo:</span><span class="stat-value" id="ammo-count">0</span></div>
+  <div class="stat-row"><span>Defeated:</span><span class="stat-value" id="kill-count">0</span></div>
+</div>
+
+<div id="leaderboard"><h3>* TOP FIGHTERS</h3></div>
+<div id="connection-status" class="disconnected">Connecting ...</div>
+
+<div id="chat-retainer">
+  <h4>. CHAT</h4>
+</div>
+
