@@ -410,26 +410,30 @@ class Fighter {
     this.isBoss = isBoss;
     this.alive = true;
 
+    // SEED-BASED GENERATION
     if (isEnemy || isBoss) {
-      this.archetype = isBoss ? 'warrior' : Object.keys(ARCHETYPES)[Math.floor(Math.random() * 6)];
+      this.archetypeIndex = isBoss ? 0 : Math.floor(Math.random() * 64);
       this.level = isBoss ? 10 : Math.floor(Math.random() * 3) + 1;
     } else {
       const data = getPlayerData(username);
-      this.archetype = data.archetype;
+      this.archetypeIndex = data.archetypeIndex;
       this.level = data.level;
       this.xp = data.xp;
     }
 
-    const arch = ARCHETYPES[this.archetype];
+    const arch = getArchetypeData(this.archetypeIndex);
     const levelMult = 1 + (this.level - 1) * 0.15;
     this.maxHp = Math.round(arch.hp * levelMult * (isBoss ? 5 : 1));
     this.hp = this.maxHp;
     this.attack = Math.round(arch.atk * levelMult * (isBoss ? 3 : 1));
     this.speed = arch.spd;
 
-    this.color = isZephyr(username) ? '#0ff' : getColorForUser(username);
+    this.color = isZephyr(username) ? '#0ff' : arch.color;
     this.ascii = isZephyr(username) ? '@' : arch.ascii;
-    this.weaponType = isZephyr(username) ? 'wand' : arch.weapon;
+    this.projectile = isZephyr(username) ? '+' : arch.projectile;
+    this.weaponIcon = isZephyr(username) ? '♥' : arch.icon;
+    this.statusType = isZephyr(username) ? 'heal' : arch.status;
+    this.statusChance = isZephyr(username) ? 0.9 : arch.chance;
 
     this.ammoCount = 0;
     this.vx = 0;
@@ -438,6 +442,7 @@ class Fighter {
     this.attackCooldown = isZephyr(username) ? 1600 : 1800;
     this.baseAttackCooldown = this.attackCooldown;
     this.statusEffects = [];
+    this.statusDurations = []; // Track duration for each status
     this.isRaging = false;
 
     // PERSONALITY TRAITS - makes fighters unique and active!
@@ -454,16 +459,9 @@ class Fighter {
   }
 
   assignPersonality() {
-    const rand = Math.random();
-    if (this.isEnemy) {
-      return rand > 0.7 ? 'aggressive' : (rand > 0.4 ? 'determined' : 'hunter');
-    }
-    // Players get varied personalities
-    if (rand > 0.8) return 'aggressive';      // 20% - Always attacking
-    if (rand > 0.6) return 'greedy';          // 20% - Wants points/ammo
-    if (rand > 0.4) return 'tactical';        // 20% - Smart positioning
-    if (rand > 0.2) return 'determined';      // 20% - Focused on KOTH
-    return 'survivor';                         // 20% - Cautious but fights
+    // Personality comes from archetype now!
+    const arch = getArchetypeData(this.archetypeIndex);
+    return arch.behavior;
   }
 
   spawnPosition() {
@@ -496,24 +494,35 @@ class Fighter {
   }
 
   updateDisplay() {
-    // Clean minimal display: username and 3 ASCII characters
+    // Clean minimal display with STATUS EFFECTS
     const nameDisplay = this.username.substring(0, 10);
-    const arch = ARCHETYPES[this.archetype];
     
     // 3 characters: [Class][Health][Weapon]
     const hpPct = Math.max(0, this.hp / this.maxHp);
-    let healthChar = '█'; // Full health
+    let healthChar = '█';
     if (hpPct < 0.25) healthChar = '░';
     else if (hpPct < 0.5) healthChar = '▒';
     else if (hpPct < 0.75) healthChar = '▓';
     
-    const weaponChar = WEAPONS[this.weaponType].icon;
-    const displayChars = this.ascii + healthChar + weaponChar;
+    const displayChars = this.ascii + healthChar + this.weaponIcon;
     
     // Ammo indicator for players
     const ammoDisplay = this.isEnemy ? '' : '[' + this.ammoCount + ']';
     
-    this.element.textContent = nameDisplay + '\n' + displayChars + ammoDisplay;
+    // STATUS EFFECT INDICATOR
+    let statusIndicator = '';
+    if (this.statusEffects.length > 0) {
+      const status = this.statusEffects[0];
+      const visual = STATUS_VISUALS[status];
+      if (visual) {
+        statusIndicator = visual.symbol;
+        this.element.style.textShadow = visual.glow;
+      }
+    } else {
+      this.element.style.textShadow = '0 0 3px currentColor';
+    }
+    
+    this.element.textContent = nameDisplay + '\n' + displayChars + statusIndicator + ammoDisplay;
   }
 
   collectAmmo(word) {
@@ -537,9 +546,25 @@ class Fighter {
       }
     }
 
-    for (const effect of this.statusEffects) {
-      if (effect === 'fire') this.hp -= CONFIG.HEALTH_DECAY_RATE * dt;
-      if (effect === 'poison') this.hp -= (CONFIG.HEALTH_DECAY_RATE * 0.6) * dt;
+    // STATUS EFFECT DAMAGE/EFFECTS
+    for (let i = this.statusEffects.length - 1; i >= 0; i--) {
+      const effect = this.statusEffects[i];
+      const effectData = this.statusDurations[i];
+      
+      // Apply damage based on status
+      if (effect === 'fire') this.hp -= CONFIG.HEALTH_DECAY_RATE * 1.2 * dt;
+      if (effect === 'poison') this.hp -= CONFIG.HEALTH_DECAY_RATE * 0.8 * dt;
+      if (effect === 'shock') this.hp -= CONFIG.HEALTH_DECAY_RATE * 0.5 * dt;
+      if (effect === 'ice') this.speed = this.speed * 0.7; // Slow
+      if (effect === 'stun' && effectData.duration < 1000) continue; // Brief stun
+      if (effect === 'slow') this.speed = this.speed * 0.8; // Slow movement
+      
+      // Decay duration
+      effectData.duration -= dt * 1000;
+      if (effectData.duration <= 0) {
+        this.statusEffects.splice(i, 1);
+        this.statusDurations.splice(i, 1);
+      }
     }
 
     if (this.isEnemy) this.updateEnemyAI(dt);
@@ -911,22 +936,66 @@ class Fighter {
 // SECTION 5: ARCHETYPES & WEAPON DEFINITIONS
 // ============================================================================
 
-const ARCHETYPES = {
-  warrior: { name: 'Warrior', ascii: 'X', color: null, hp: 80, atk: 8, spd: 30, weapon: 'sword', statusChance: { fire: 0.15 } },
-  mage:    { name: 'Mage',    ascii: '*', color: null, hp: 50, atk: 12, spd: 25, weapon: 'staff', statusChance: { ice: 0.2 } },
-  rogue:   { name: 'Rogue',   ascii: '>', color: null, hp: 60, atk: 10, spd: 40, weapon: 'dagger', statusChance: { poison: 0.25 } },
-  tank:    { name: 'Tank',    ascii: '#', color: null, hp: 120, atk: 5, spd: 20, weapon: 'hammer', statusChance: {} },
-  ranger:  { name: 'Ranger',  ascii: '1', color: null, hp: 65, atk: 9, spd: 35, weapon: 'bow', statusChance: {} },
-  healer:  { name: 'Healer',  ascii: '+', color: null, hp: 55, atk: 3, spd: 28, weapon: 'wand', statusChance: {} },
-};
+// SEED-BASED ARCHETYPE GENERATION (0-63 seed determines everything)
+const ARCHETYPES = [
+  // Fire builds (0-9)
+  { ascii: 'X', hp: 80,  atk: 8,  spd: 30, projectile: '-',  color: '#f88', icon: '†', status: 'fire',   chance: 0.3, behavior: 'aggressive' },
+  { ascii: '*', hp: 50,  atk: 12, spd: 25, projectile: '~',  color: '#f40', icon: '※', status: 'fire',   chance: 0.4, behavior: 'tactical' },
+  { ascii: 'W', hp: 90,  atk: 7,  spd: 28, projectile: '=',  color: '#f66', icon: '☼', status: 'fire',   chance: 0.25, behavior: 'determined' },
+  { ascii: 'F', hp: 70,  atk: 10, spd: 32, projectile: '/',  color: '#fa0', icon: '♦', status: 'fire',   chance: 0.35, behavior: 'greedy' },
+  { ascii: '☼', hp: 65,  atk: 9,  spd: 30, projectile: '\\', color: '#f80', icon: '◊', status: 'fire',   chance: 0.2, behavior: 'survivor' },
+  
+  // Ice builds (10-19)
+  { ascii: '*', hp: 50,  atk: 12, spd: 25, projectile: '+',  color: '#88f', icon: '‡', status: 'ice',    chance: 0.3, behavior: 'tactical' },
+  { ascii: 'I', hp: 60,  atk: 11, spd: 22, projectile: '*',  color: '#0cf', icon: '❄', status: 'ice',    chance: 0.35, behavior: 'survivor' },
+  { ascii: '◆', hp: 75,  atk: 8,  spd: 24, projectile: '◊',  color: '#4af', icon: '❋', status: 'ice',    chance: 0.25, behavior: 'determined' },
+  { ascii: 'C', hp: 55,  atk: 13, spd: 23, projectile: '÷',  color: '#0ff', icon: '※', status: 'ice',    chance: 0.4, behavior: 'aggressive' },
+  { ascii: '❅', hp: 70,  atk: 9,  spd: 26, projectile: '○',  color: '#6cf', icon: '◈', status: 'ice',    chance: 0.3, behavior: 'greedy' },
+  
+  // Poison builds (20-29) - fast hit and run
+  { ascii: '>', hp: 60,  atk: 10, spd: 40, projectile: '>',  color: '#8f8', icon: '¡', status: 'poison', chance: 0.35, behavior: 'tactical' },
+  { ascii: 'P', hp: 55,  atk: 11, spd: 42, projectile: '→',  color: '#0f0', icon: '☣', status: 'poison', chance: 0.4, behavior: 'aggressive' },
+  { ascii: '☠', hp: 50,  atk: 12, spd: 45, projectile: '»',  color: '#4f4', icon: '¶', status: 'poison', chance: 0.45, behavior: 'hunter' },
+  { ascii: 'V', hp: 58,  atk: 10, spd: 38, projectile: '≫',  color: '#6f6', icon: '☢', status: 'poison', chance: 0.3, behavior: 'greedy' },
+  { ascii: '►', hp: 62,  atk: 9,  spd: 36, projectile: '▸',  color: '#8f4', icon: '♣', status: 'poison', chance: 0.25, behavior: 'survivor' },
+  
+  // Lightning builds (30-39) - fast attacks
+  { ascii: '¥', hp: 55,  atk: 14, spd: 35, projectile: '|',  color: '#ff0', icon: '⚡', status: 'shock',  chance: 0.3, behavior: 'aggressive' },
+  { ascii: 'L', hp: 60,  atk: 13, spd: 33, projectile: '!',  color: '#fe0', icon: '↯', status: 'shock',  chance: 0.35, behavior: 'greedy' },
+  { ascii: '⚡', hp: 50,  atk: 15, spd: 38, projectile: '¦',  color: '#ff4', icon: '※', status: 'shock',  chance: 0.4, behavior: 'hunter' },
+  { ascii: 'Z', hp: 65,  atk: 12, spd: 32, projectile: '†',  color: '#fe4', icon: '◊', status: 'shock',  chance: 0.25, behavior: 'tactical' },
+  { ascii: '↯', hp: 58,  atk: 13, spd: 34, projectile: '‡',  color: '#fd0', icon: '♦', status: 'shock',  chance: 0.3, behavior: 'determined' },
+  
+  // Earth/Physical builds (40-49) - tanky
+  { ascii: '#', hp: 120, atk: 5,  spd: 20, projectile: '.',  color: '#aaa', icon: '¶', status: 'stun',   chance: 0.2, behavior: 'determined' },
+  { ascii: '■', hp: 130, atk: 4,  spd: 18, projectile: '◘',  color: '#888', icon: '◙', status: 'stun',   chance: 0.25, behavior: 'survivor' },
+  { ascii: 'T', hp: 110, atk: 6,  spd: 22, projectile: '▬',  color: '#964', icon: '■', status: 'stun',   chance: 0.15, behavior: 'tactical' },
+  { ascii: '▓', hp: 115, atk: 5,  spd: 21, projectile: '▪',  color: '#753', icon: '▓', status: 'stun',   chance: 0.2, behavior: 'aggressive' },
+  { ascii: '♦', hp: 105, atk: 7,  spd: 23, projectile: '♦',  color: '#a86', icon: '◆', status: 'stun',   chance: 0.18, behavior: 'greedy' },
+  
+  // Wind/Speed builds (50-59) - fast movement
+  { ascii: '1', hp: 65,  atk: 9,  spd: 35, projectile: '->', color: '#af8', icon: '↑', status: 'slow',   chance: 0.2, behavior: 'greedy' },
+  { ascii: '↑', hp: 60,  atk: 10, spd: 38, projectile: '↗',  color: '#8fa', icon: '↟', status: 'slow',   chance: 0.25, behavior: 'hunter' },
+  { ascii: 'R', hp: 62,  atk: 9,  spd: 36, projectile: '⇒',  color: '#6f8', icon: '⇑', status: 'slow',   chance: 0.22, behavior: 'tactical' },
+  { ascii: '⇑', hp: 58,  atk: 11, spd: 40, projectile: '⇗',  color: '#4fa', icon: '↾', status: 'slow',   chance: 0.28, behavior: 'aggressive' },
+  { ascii: 'A', hp: 64,  atk: 8,  spd: 34, projectile: '➤',  color: '#8f6', icon: '➢', status: 'slow',   chance: 0.2, behavior: 'survivor' },
+  
+  // Holy/Support (60-63) - healing/buffs
+  { ascii: '+', hp: 55,  atk: 3,  spd: 28, projectile: '+',  color: '#0f8', icon: '♥', status: 'heal',   chance: 0.8, behavior: 'support' },
+  { ascii: '♥', hp: 60,  atk: 2,  spd: 30, projectile: '♥',  color: '#f8f', icon: '♡', status: 'heal',   chance: 0.9, behavior: 'support' },
+  { ascii: '☼', hp: 58,  atk: 4,  spd: 29, projectile: '☼',  color: '#ff8', icon: '✦', status: 'heal',   chance: 0.7, behavior: 'support' },
+  { ascii: 'H', hp: 62,  atk: 3,  spd: 27, projectile: '◊',  color: '#8ff', icon: '✚', status: 'heal',   chance: 0.85, behavior: 'support' },
+];
 
-const WEAPONS = {
-  sword:  { projectile: '-',  damage: 8,  speed: 110, color: '#f88', icon: '†' },
-  staff:  { projectile: '+',  damage: 12, speed: 95,  color: '#88f', icon: '‡' },
-  dagger: { projectile: '>',  damage: 9,  speed: 130, color: '#8f8', icon: '¡' },
-  hammer: { projectile: '.',  damage: 7,  speed: 80,  color: '#aaa', icon: '¶' },
-  bow:    { projectile: '->', damage: 10, speed: 120, color: '#af8', icon: '↑' },
-  wand:   { projectile: '+',  damage: -10, speed: 110, color: '#0f8', icon: '♥' }, // Heals
+// Status effect visual markers
+const STATUS_VISUALS = {
+  fire:   { color: '#f40', symbol: '♨', glow: '0 0 8px #f40' },
+  ice:    { color: '#0cf', symbol: '❄', glow: '0 0 8px #0cf' },
+  poison: { color: '#0f0', symbol: '☠', glow: '0 0 8px #0f0' },
+  shock:  { color: '#ff0', symbol: '⚡', glow: '0 0 8px #ff0' },
+  stun:   { color: '#888', symbol: '◘', glow: '0 0 8px #888' },
+  slow:   { color: '#8af', symbol: '◔', glow: '0 0 8px #8af' },
+  heal:   { color: '#0f8', symbol: '♥', glow: '0 0 8px #0f8' },
 };
 
 // ============================================================================
@@ -949,15 +1018,18 @@ function getColorForUser(username) {
 
 function getArchetypeForUser(username) {
   const seed = hashUsername(username);
-  const archetypes = Object.keys(ARCHETYPES);
-  return archetypes[seed % archetypes.length];
+  return seed % 64; // 0-63 maps to archetype array
+}
+
+function getArchetypeData(archetypeIndex) {
+  return ARCHETYPES[archetypeIndex] || ARCHETYPES[0];
 }
 
 function getPlayerData(username) {
   if (!GameState.playerData[username]) {
     GameState.playerData[username] = {
       username,
-      archetype: username === 'Zephyr' ? 'healer' : getArchetypeForUser(username),
+      archetypeIndex: username === 'Zephyr' ? 60 : getArchetypeForUser(username), // Seed-based
       level: 1,
       xp: 0,
       kills: 0,
@@ -979,11 +1051,12 @@ class Projectile {
     this.owner = owner;
     this.x = owner.x;
     this.y = owner.y;
-    const weapon = WEAPONS[owner.weaponType];
-    this.damage = weapon.damage;
-    this.speed = weapon.speed;
-    this.color = weapon.color;
-    this.symbol = weapon.projectile;
+    this.damage = owner.attack;
+    this.speed = 120; // Standardize projectile speed
+    this.color = owner.color;
+    this.symbol = owner.projectile;
+    this.statusType = owner.statusType;
+    this.statusChance = owner.statusChance;
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = Math.sqrt(dx*dx + dy*dy) || 1;
@@ -1022,6 +1095,12 @@ class Projectile {
 
       if (distance(f.x, f.y, this.x, this.y) < 25) {
         f.takeDamage(this.damage, this.owner);
+        
+        // APPLY STATUS EFFECT BASED ON WEAPON/ARCHETYPE
+        if (Math.random() < this.statusChance && this.statusType !== 'heal') {
+          f.applyStatus(this.statusType);
+        }
+        
         const dx = f.x - this.owner.x;
         const dy = f.y - this.owner.y;
         const d = Math.sqrt(dx*dx + dy*dy) || 1;
@@ -1345,27 +1424,23 @@ function initializeTestMode() {
   
   console.log('[TEST] Initializing combat test...');
   
-  // Spawn Hero 1 on LEFT side
+  // Spawn Hero 1 on LEFT side - FIRE BUILD
+  GameState.playerData['HeroLeft'] = { username: 'HeroLeft', archetypeIndex: 0, level: 1, xp: 0, kills: 0, deaths: 0, points: 0 };
   testHero1 = new Fighter('HeroLeft', false, false);
   testHero1.x = 150; // Left side
   testHero1.y = GameState.height / 2;
   testHero1.ammoCount = 10; // Give them ammo to fight
-  testHero1.archetype = 'warrior';
-  testHero1.ascii = 'W';
   GameState.fighters.push(testHero1);
-  GameState.playerData['HeroLeft'] = getPlayerData('HeroLeft');
-  console.log('[TEST] Spawned HeroLeft at left side');
+  console.log('[TEST] Spawned HeroLeft (Fire) at left side');
   
-  // Spawn Hero 2 on RIGHT side
+  // Spawn Hero 2 on RIGHT side - ICE BUILD
+  GameState.playerData['HeroRight'] = { username: 'HeroRight', archetypeIndex: 10, level: 1, xp: 0, kills: 0, deaths: 0, points: 0 };
   testHero2 = new Fighter('HeroRight', false, false);
   testHero2.x = GameState.width - 150; // Right side
   testHero2.y = GameState.height / 2;
   testHero2.ammoCount = 10; // Give them ammo to fight
-  testHero2.archetype = 'mage';
-  testHero2.ascii = 'M';
   GameState.fighters.push(testHero2);
-  GameState.playerData['HeroRight'] = getPlayerData('HeroRight');
-  console.log('[TEST] Spawned HeroRight at right side');
+  console.log('[TEST] Spawned HeroRight (Ice) at right side');
   
   // Spawn some test ammo
   for (let i = 0; i < 5; i++) {
