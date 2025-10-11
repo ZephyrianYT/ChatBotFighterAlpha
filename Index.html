@@ -298,7 +298,7 @@ body {
 <div id="health-monitor">FPS: -- | Time: 0:00 | Entities: 0</div>
 
 <div id="chat-retainer">
-  <h4>⚔ CHAT TO ENTER COMBAT ⚔</h4>
+  <h4>* CHAT TO ENTER COMBAT *</h4>
   <div class="chat-placeholder">Waiting for warriors...</div>
 </div>
 
@@ -752,8 +752,8 @@ class Fighter {
     this.color = isZephyr(username) ? '#0ff' : arch.color;
     this.ascii = isZephyr(username) ? '@' : arch.ascii;
     this.projectile = isZephyr(username) ? '+' : arch.projectile;
-    this.melee = isZephyr(username) ? '♥' : arch.melee;
-    this.weaponIcon = isZephyr(username) ? '♥' : arch.icon;
+    this.melee = isZephyr(username) ? '+' : arch.melee;
+    this.weaponIcon = isZephyr(username) ? '+' : arch.icon;
     this.statusType = isZephyr(username) ? 'heal' : arch.status;
     this.statusChance = isZephyr(username) ? 0.9 : arch.chance;
 
@@ -1454,7 +1454,7 @@ const ARCHETYPES = [
   // Poison builds (20-29) - LETHAL + fast
   { ascii: '>', hp: 18,  atk: 22, spd: 40, projectile: '>',  melee: '¡', color: '#8f8', icon: '¡', status: 'poison', chance: 0.35, behavior: 'greedy', ammo: 15 },
   { ascii: 'P', hp: 19,  atk: 21, spd: 42, projectile: '→',  melee: '☣', color: '#0f0', icon: '☣', status: 'poison', chance: 0.4, behavior: 'greedy', ammo: 17 },
-  { ascii: '☠', hp: 17,  atk: 23, spd: 45, projectile: '»',  melee: '¶', color: '#4f4', icon: '¶', status: 'poison', chance: 0.45, behavior: 'greedy', ammo: 14 },
+  { ascii: 'X', hp: 17,  atk: 23, spd: 45, projectile: '>',  melee: 'x', color: '#4f4', icon: 'x', status: 'poison', chance: 0.45, behavior: 'greedy', ammo: 14 },
   { ascii: 'V', hp: 20,  atk: 20, spd: 38, projectile: '≫',  melee: '☢', color: '#6f6', icon: '☢', status: 'poison', chance: 0.3, behavior: 'greedy', ammo: 16 },
   { ascii: '►', hp: 22,  atk: 18, spd: 36, projectile: '▸',  melee: '♣', color: '#8f4', icon: '♣', status: 'poison', chance: 0.25, behavior: 'greedy', ammo: 18 },
   
@@ -1491,13 +1491,13 @@ const PLAYER_RESPAWN_COOLDOWN = 10 * 60 * 1000; // 10 minutes
 
 // Status effect visual markers
 const STATUS_VISUALS = {
-  fire:   { color: '#f40', symbol: '♨', glow: '0 0 8px #f40' },
-  ice:    { color: '#0cf', symbol: '❄', glow: '0 0 8px #0cf' },
-  poison: { color: '#0f0', symbol: '☠', glow: '0 0 8px #0f0' },
-  shock:  { color: '#ff0', symbol: '⚡', glow: '0 0 8px #ff0' },
-  stun:   { color: '#888', symbol: '◘', glow: '0 0 8px #888' },
-  slow:   { color: '#8af', symbol: '◔', glow: '0 0 8px #8af' },
-  heal:   { color: '#0f8', symbol: '♥', glow: '0 0 8px #0f8' },
+  fire:   { color: '#f40', symbol: '^', glow: '0 0 8px #f40' },
+  ice:    { color: '#0cf', symbol: '*', glow: '0 0 8px #0cf' },
+  poison: { color: '#0f0', symbol: 'X', glow: '0 0 8px #0f0' },
+  shock:  { color: '#ff0', symbol: '!', glow: '0 0 8px #ff0' },
+  stun:   { color: '#888', symbol: '#', glow: '0 0 8px #888' },
+  slow:   { color: '#8af', symbol: '~', glow: '0 0 8px #8af' },
+  heal:   { color: '#0f8', symbol: '+', glow: '0 0 8px #0f8' },
 };
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -1555,7 +1555,7 @@ const VisualFX = {
   hitFlash(x, y, color, isKill = false) {
     const flash = document.createElement('div');
     flash.className = 'hit-flash';
-    flash.textContent = isKill ? '✶' : '✦';
+    flash.textContent = isKill ? '*' : '+';
     flash.style.left = x + 'px';
     flash.style.top = y + 'px';
     flash.style.color = color;
