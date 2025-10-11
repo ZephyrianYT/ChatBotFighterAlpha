@@ -1607,7 +1607,7 @@ function gameLoop() {
   for (const proj of GameState.projectiles.slice()) proj.update(dt);
   for (const ammo of GameState.ammo.slice()) ammo.update(dt);
 
-  // Spawn AI enemies periodically
+  // Spawn AI enemies periodically (TEST and PRODUCTION)
   if (now - GameState.lastAISpawn > CONFIG.AI_SPAWN_INTERVAL) {
     spawnAIEnemy();
     GameState.lastAISpawn = now;
@@ -1628,48 +1628,80 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-// Test mode spawner - creates proper combat scenario
-let testHero1 = null;
-let testHero2 = null;
+// ============================================================================
+// TEST MODE - Identical to Production, Named Archetypes for Debugging
+// ============================================================================
 let testInitialized = false;
 
 function initializeTestMode() {
   if (testInitialized) return;
   testInitialized = true;
   
-  console.log('[TEST] Initializing combat test...');
+  console.log('[TEST] ═══════════════════════════════════════');
+  console.log('[TEST] Combat Test Mode - Named Archetypes');
+  console.log('[TEST] ═══════════════════════════════════════');
   
-  // Spawn Hero 1 on LEFT side - FIRE BUILD (seed 0)
-  GameState.playerData['HeroLeft'] = { username: 'HeroLeft', archetypeIndex: 0, level: 1, xp: 0, kills: 0, deaths: 0, points: 0 };
-  testHero1 = new Fighter('HeroLeft', false, false);
-  testHero1.x = 150; // Left side
-  testHero1.y = GameState.height / 2;
-  // Already has ammo from archetype seed!
-  GameState.fighters.push(testHero1);
-  console.log('[TEST] HeroLeft: HP=' + testHero1.hp + ', ATK=' + testHero1.attack + ', AMMO=' + testHero1.ammoCount + ', STATUS=' + testHero1.statusType);
+  // === SPAWN NAMED ARCHETYPES FOR DEBUGGING ===
+  // Names automatically map to specific builds!
   
-  // Spawn Hero 2 on RIGHT side - POISON BUILD (seed 20) - FAST!
-  GameState.playerData['HeroRight'] = { username: 'HeroRight', archetypeIndex: 20, level: 1, xp: 0, kills: 0, deaths: 0, points: 0 };
-  testHero2 = new Fighter('HeroRight', false, false);
-  testHero2.x = GameState.width - 150; // Right side
-  testHero2.y = GameState.height / 2;
-  // Already has ammo from archetype seed!
-  GameState.fighters.push(testHero2);
-  console.log('[TEST] HeroRight: HP=' + testHero2.hp + ', ATK=' + testHero2.attack + ', AMMO=' + testHero2.ammoCount + ', STATUS=' + testHero2.statusType);
-  
-  // Spawn some test ammo
-  for (let i = 0; i < 5; i++) {
-    const words = ['power', 'strike', 'blast', 'fury', 'rage'];
-    spawnAmmo('Test', words[i], false);
+  // FireWarrior (archetype 0) - left side
+  const hero1 = spawnPlayer('FireWarrior');
+  if (hero1) {
+    hero1.x = 200;
+    hero1.y = GameState.height / 2;
+    console.log('[TEST] FireWarrior spawned → HP=' + hero1.hp + ', ATK=' + hero1.attack + ', AMMO=' + hero1.ammoCount + ', STATUS=' + hero1.statusType);
   }
   
-  console.log('[TEST] Heroes will seek each other and fight!');
-  console.log('[TEST] Zephyr will heal when one is hurt');
+  // PoisonRogue (archetype 23) - right side
+  const hero2 = spawnPlayer('PoisonRogue');
+  if (hero2) {
+    hero2.x = GameState.width - 200;
+    hero2.y = GameState.height / 2;
+    console.log('[TEST] PoisonRogue spawned → HP=' + hero2.hp + ', ATK=' + hero2.attack + ', AMMO=' + hero2.ammoCount + ', STATUS=' + hero2.statusType);
+  }
+  
+  // IceMage (archetype 11) - top
+  const hero3 = spawnPlayer('IceMage');
+  if (hero3) {
+    hero3.x = GameState.width / 2;
+    hero3.y = 200;
+    console.log('[TEST] IceMage spawned → HP=' + hero3.hp + ', ATK=' + hero3.attack + ', AMMO=' + hero3.ammoCount + ', STATUS=' + hero3.statusType);
+  }
+  
+  // LightningWarrior (archetype 30) - bottom left
+  const hero4 = spawnPlayer('LightningWarrior');
+  if (hero4) {
+    hero4.x = 300;
+    hero4.y = GameState.height - 200;
+    console.log('[TEST] LightningWarrior spawned → HP=' + hero4.hp + ', ATK=' + hero4.attack + ', AMMO=' + hero4.ammoCount + ', STATUS=' + hero4.statusType);
+  }
+  
+  // EarthKnight (archetype 42) - bottom right
+  const hero5 = spawnPlayer('EarthKnight');
+  if (hero5) {
+    hero5.x = GameState.width - 300;
+    hero5.y = GameState.height - 200;
+    console.log('[TEST] EarthKnight spawned → HP=' + hero5.hp + ', ATK=' + hero5.attack + ', AMMO=' + hero5.ammoCount + ', STATUS=' + hero5.statusType);
+  }
+  
+  // Spawn test ammo at edges (same as production)
+  spawnAmmo('TestAmmo', 'POWER STRIKE BLAST FURY RAGE ENERGY BOLT CHAOS', true);
+  
+  console.log('[TEST] ═══════════════════════════════════════');
+  console.log('[TEST] All heroes will fight each other!');
+  console.log('[TEST] KOTH zone is their primary objective');
+  console.log('[TEST] Ammo spawned at edges - must seek it');
+  console.log('[TEST] Enemies will trickle in from top');
+  console.log('[TEST] Zephyr will heal when needed');
+  console.log('[TEST] ═══════════════════════════════════════');
 }
 
 function spawnTestEnemies() {
-  console.log('[TEST] Spawning enemy from top');
-  spawnAIEnemy();
+  // Spawn AI enemy (same as production)
+  const enemy = spawnAIEnemy();
+  if (enemy) {
+    console.log('[TEST] Enemy spawned from top → ' + enemy.personality);
+  }
 }
 
 function spawnZephyr() {
@@ -1720,35 +1752,54 @@ if (!CONFIG.TEST_MODE) {
 
 gameLoop();
 
+// ============================================================================
+// TEST MODE INITIALIZATION - Uses Same Rules as Production
+// ============================================================================
 if (CONFIG.TEST_MODE) {
+  console.log('[TEST] ═══════════════════════════════════════════════════════════');
+  console.log('[TEST] TEST MODE ACTIVE - All Production Rules Apply');
+  console.log('[TEST] ═══════════════════════════════════════════════════════════');
+  
+  // Alert
   setTimeout(() => {
-    showEventAlert('=== TEST MODE ACTIVE ===', 'Combat test initializing...', '#fa0');
+    showEventAlert('=== TEST MODE ACTIVE ===', 'Production rules active • Named archetypes enabled', '#fa0');
   }, 1000);
   
-  // Initialize test combat scenario
+  // Initialize test scenario
   setTimeout(() => {
     initializeTestMode();
   }, 2000);
   
-  // Spawn test enemies from top every 10 seconds
+  // Test Streamlabs follow event after 30 seconds
   setTimeout(() => {
-    spawnTestEnemies();
-    setInterval(spawnTestEnemies, 10000);
-  }, 8000);
+    console.log('[TEST] Simulating follower event...');
+    showEventAlert('*** NEW FOLLOWER ***', 'WindDemon just followed!', '#0ff');
+    const newHero = spawnPlayer('WindDemon'); // Named archetype!
+    if (newHero) {
+      newHero.x = GameState.width / 2 + 200;
+      newHero.y = 150;
+      console.log('[TEST] WindDemon follower spawned → HP=' + newHero.hp + ', ATK=' + newHero.attack);
+    }
+    spawnAmmo('FollowerGift', 'EPIC LEGENDARY AMAZING BOOST', true);
+    spawnBoss(); // Boss for follower event
+  }, 30000);
   
-  // Test follower alert
+  // Test subscription event after 60 seconds
   setTimeout(() => {
-    showEventAlert('*** NEW FOLLOWER ***', 'TestUser just followed!', '#0ff');
-    const newHero = spawnPlayer('TestFollower');
-    if (newHero) newHero.ammoCount = 5;
-  }, 30000);
-}
-</script>
-</body>
-</html>
-ollower');
-    if (newHero) newHero.ammoCount = 5;
-  }, 30000);
+    console.log('[TEST] Simulating subscription event...');
+    showEventAlert('*** SUBSCRIBER ***', 'FirePhoenix subscribed!', '#f0f');
+    const subscriber = spawnPlayer('FirePhoenix'); // Named archetype!
+    if (subscriber) {
+      subscriber.x = GameState.width - 300;
+      subscriber.y = 300;
+      console.log('[TEST] FirePhoenix subscriber spawned → HP=' + subscriber.hp + ', ATK=' + subscriber.attack);
+    }
+    spawnAmmo('SubGift', 'LEGENDARY HYPE POWER BOOST ELITE', true);
+    spawnBoss(); // Boss for sub
+    spawnAIEnemy(); // Extra enemies
+    spawnAIEnemy();
+    spawnAIEnemy();
+  }, 60000);
 }
 </script>
 </body>
