@@ -1,3 +1,7 @@
+I'm not a coder, just making this with claude and other ai, for the whatevers of it.
+Find me on youtube under the name Zephyr,  https://[www.youtube.com/channel/@Zephyrian1st](https://www.youtube.com/@Zephyrian1st)
+
+
 Zephyr: Autonomous ASCII Overlay
 Overview
 Zephyr is an autonomous ASCII‑styled game overlay designed for OBS or any browser source.
