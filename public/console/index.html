@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Chat Fighter Console</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0b0f0d; color: #cfe; font-family: 'Courier New', monospace; font-size: 14px; }
+    header { padding: 10px 16px; border-bottom: 1px solid #1d3; color: #0f6; font-weight: bold; letter-spacing: 2px; }
+    main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; padding: 16px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    section { background: #111a15; border: 1px solid #1d3; border-radius: 6px; padding: 12px; margin-bottom: 16px; }
+    h2 { margin: 0 0 8px; font-size: 13px; color: #0f6; letter-spacing: 1px; }
+    label { display: block; margin: 6px 0 2px; color: #8a9; font-size: 12px; }
+    input { width: 100%; padding: 8px; background: #000; color: #fff; border: 1px solid #2a4; border-radius: 4px; font: inherit; }
+    button { margin: 3px 2px; padding: 6px 9px; background: #062; color: #dfe; border: 1px solid #0a4; border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; }
+    button:hover { background: #084; }
+    button.warn { background: #511; border-color: #a33; }
+    .hint { color: #688; font-size: 12px; margin-top: 6px; }
+    #log { height: 220px; overflow-y: auto; font-size: 12px; }
+    #log div { padding: 2px 0; border-bottom: 1px solid #132; }
+    .preview { position: relative; width: 100%; aspect-ratio: 16 / 9; border: 1px solid #1d3; border-radius: 6px; overflow: hidden;
+      background: repeating-linear-gradient(45deg, #1a1f2a, #1a1f2a 20px, #151a24 20px, #151a24 40px); }
+    .preview iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  <header>⚔ CHAT FIGHTER · TEST CONSOLE</header>
+  <main>
+    <div>
+      <section>
+        <h2>SEND CHAT</h2>
+        <form id="chat-form">
+          <label for="user">Username</label>
+          <input id="user" value="TestHero" maxlength="40" autocomplete="off" />
+          <label for="msg">Message</label>
+          <input id="msg" placeholder="hello! or --guild Knights" maxlength="300" autocomplete="off" />
+          <button type="submit">Send ⏎</button>
+        </form>
+        <div id="quick"></div>
+        <div class="hint">Commands use <b>@name</b> for players, e.g. <b>--attack @Bob</b>.</div>
+      </section>
+      <section>
+        <h2>TEST CROWD</h2>
+        <button id="swarm">+10 chatters</button>
+        <button id="chaos">Start chaos mode</button>
+        <button id="mob">Spawn monster</button>
+        <button id="boss" class="warn">Spawn boss</button>
+        <div class="hint">Chaos mode makes the test chatters send random commands.</div>
+      </section>
+      <section>
+        <h2>EVENTS</h2>
+        <div id="log"></div>
+      </section>
+    </div>
+    <div>
+      <section>
+        <h2>OVERLAY PREVIEW <span class="hint">(what OBS shows: <a href="/overlay" target="_blank" style="color:#0f6">/overlay</a>)</span></h2>
+        <div class="preview"><iframe src="/overlay?debug=1" title="Overlay preview"></iframe></div>
+      </section>
+    </div>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    (() => {
+      const socket = io();
+      const $ = id => document.getElementById(id);
+      const send = (user, message) => socket.emit('chat', { user, message });
+
+      $('chat-form').addEventListener('submit', ev => {
+        ev.preventDefault();
+        const user = $('user').value.trim();
+        const message = $('msg').value;
+        if (!user || !message.trim()) return;
+        send(user, message);
+        $('msg').value = '';
+        $('msg').focus();
+      });
+
+      const QUICK = ['--guild Knights', '--attack @', '--attack guild ', '--allywith @', '--heal', '--revive', '--loot',
+        '--equip ', '--use Potion', '--summon', '--summon @', '--dance', '--cheer', '--stats', '--leaveguild'];
+      for (const cmd of QUICK) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = cmd.trim();
+        b.addEventListener('click', () => {
+          $('msg').value = cmd;
+          $('msg').focus();
+        });
+        $('quick').append(b);
+      }
+
+      const NAMES = ['Ian', 'ChatChan', 'Mochi', 'PixelPal', 'Nova', 'Grimm', 'Lark', 'Echo', 'Bun', 'Rook', 'Sable', 'Juno',
+        'Kip', 'Vex', 'Wren', 'Orbit', 'Tako', 'Zuzu', 'Fern', 'Blip', 'Moss', 'Indy', 'Quill', 'Rune'];
+      const GUILDS = ['Knights', 'MoonRiders', 'NightOwls'];
+      const crowd = [];
+      const pick = list => list[Math.floor(Math.random() * list.length)];
+
+      $('swarm').addEventListener('click', () => {
+        for (let i = 0; i < 10; i++) {
+          const name = `${pick(NAMES)}${Math.floor(Math.random() * 90 + 10)}`;
+          crowd.push(name);
+          setTimeout(() => send(name, pick(['hi!', 'lets gooo', 'o7', 'hello chat', 'first time here'])), i * 150);
+        }
+      });
+
+      const randomCommand = name => {
+        const other = pick(crowd.filter(n => n !== name)) || 'Ian';
+        return pick([
+          `--guild ${pick(GUILDS)}`, `--attack @${other}`, `--attack guild ${pick(GUILDS)}`, `--allywith @${other}`,
+          '--heal', '--revive', '--loot', '--use Potion', '--equip Sword', '--summon', `--summon @${other}`,
+          '--dance', '--cheer', 'gg', 'nice one', '--attack',
+        ]);
+      };
+      let chaos = null;
+      $('chaos').addEventListener('click', () => {
+        if (chaos) {
+          clearInterval(chaos);
+          chaos = null;
+          $('chaos').textContent = 'Start chaos mode';
+          return;
+        }
+        if (!crowd.length) $('swarm').click();
+        chaos = setInterval(() => {
+          const name = pick(crowd);
+          send(name, randomCommand(name));
+        }, 700);
+        $('chaos').textContent = 'Stop chaos mode';
+      });
+
+      $('mob').addEventListener('click', () => socket.emit('admin', 'mob'));
+      $('boss').addEventListener('click', () => socket.emit('admin', 'boss'));
+
+      const log = item => {
+        const el = document.createElement('div');
+        el.textContent = item.text;
+        $('log').prepend(el);
+        while ($('log').children.length > 80) $('log').lastChild.remove();
+      };
+      socket.on('hello', h => h.feed.forEach(log));
+      socket.on('feed', log);
+      socket.on('status', s => {
+        if (s.console !== 'on') log({ text: 'Test console is disabled (TEST_CONSOLE=false in .env).' });
+      });
+    })();
+  </script>
+</body>
+</html>
