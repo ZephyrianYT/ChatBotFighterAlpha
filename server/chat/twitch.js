@@ -9,7 +9,7 @@ function startTwitch({ channel, onChat, onStatus }) {
   });
   client.on('message', (_channel, tags, message, self) => {
     if (self) return;
-    onChat({ user: tags['display-name'] || tags.username, message, platform: 'twitch' });
+    onChat({ user: tags['display-name'] || tags.username, message, platform: 'twitch', id: tags['user-id'] });
   });
   client.on('connected', () => onStatus('connected'));
   client.on('reconnect', () => onStatus('reconnecting'));

@@ -30,6 +30,21 @@ test('server serves the overlay and streams chat-driven state', async () => {
     });
     assert.equal(seen.k, 'p');
     socket.close();
+
+    // A random website open in the streamer's browser must not be able to connect.
+    const evil = io(base, { transports: ['websocket'], extraHeaders: { Origin: 'https://evil.example' }, reconnection: false });
+    const err = await new Promise(resolve => {
+      evil.once('connect', () => resolve(null));
+      evil.once('connect_error', resolve);
+    });
+    assert.ok(err, 'cross-site connection rejected');
+    evil.close();
+    const same = io(base, { transports: ['websocket'], extraHeaders: { Origin: base }, reconnection: false });
+    await new Promise((resolve, reject) => {
+      same.once('connect', resolve);
+      same.once('connect_error', reject);
+    });
+    same.close();
   } finally {
     await app.stop();
   }

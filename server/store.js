@@ -8,10 +8,14 @@
 const fs = require('fs');
 const path = require('path');
 
+// Lookup tables keyed by chat names use objects without a prototype, so a
+// chatter named "constructor" or "__proto__" is just another name.
+const dict = obj => Object.assign(Object.create(null), obj && typeof obj === 'object' ? obj : {});
+
 class Store {
   constructor(file) {
     this.file = file;
-    this.data = { version: 1, players: {}, guilds: {} };
+    this.data = { version: 1, players: dict(), guilds: dict() };
     this.dirty = false;
   }
 
@@ -19,11 +23,7 @@ class Store {
     if (!this.file || !fs.existsSync(this.file)) return this;
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      this.data = {
-        version: 1,
-        players: parsed.players && typeof parsed.players === 'object' ? parsed.players : {},
-        guilds: parsed.guilds && typeof parsed.guilds === 'object' ? parsed.guilds : {},
-      };
+      this.data = { version: 1, players: dict(parsed.players), guilds: dict(parsed.guilds) };
     } catch (err) {
       // Keep the broken file for inspection instead of overwriting it.
       const backup = `${this.file}.corrupt-${Date.now()}`;

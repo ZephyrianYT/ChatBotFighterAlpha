@@ -119,6 +119,25 @@ Commands can go anywhere in a message. Phones that turn `--` into `—` work too
 Overlay URL options: `?hud=0` hides the panels, `?help=0` hides the command
 tips, `?status=0` hides the connection line, and `?debug=1` outlines the NEZ.
 
+## Troubleshooting
+
+- **The overlay is blank in OBS.** Start the server (`npm start`) before
+  OBS loads the source. If OBS was already open, right-click the source and
+  choose **Refresh**. Once the overlay has loaded, it reconnects on its own
+  when you restart the server.
+- **Everything looks small or squished.** Set the Browser Source to Width
+  `1920` and Height `1080`. OBS starts browser sources at 800×600.
+- **`.env` isn't picked up on Windows.** Windows may have saved it as
+  `.env.txt`. Turn on **View → File name extensions** in File Explorer and
+  rename it to exactly `.env`.
+- **OBS runs on a different PC than the server.** Set `HOST=0.0.0.0` in
+  `.env` and use `http://<server-PC-IP>:3000/overlay` in OBS. This opens the
+  game to your local network, so also set `TEST_CONSOLE=false`.
+- **Two people with the same name.** If a name is already used by a
+  different account (for example a Twitch "Alex" and a YouTube "Alex"), the
+  newcomer gets their own character called `Alex#abcd` instead of taking
+  over the existing one.
+
 ## Files
 
 ```

@@ -92,12 +92,15 @@
       e.ty = d.y;
       seen.add(d.id);
     }
+    // Effects first: a killing blow refers to an entity this snapshot removes.
+    for (const f of s.fx) addFx(f, now);
     for (const id of G.ents.keys()) if (!seen.has(id)) G.ents.delete(id);
     G.loot = s.loot;
-    for (const f of s.fx) addFx(f, now);
   }
 
   function addFx(f, now) {
+    // Snapshots keep arriving while drawing is paused (hidden source/tab).
+    if (G.fx.length > 400) G.fx.splice(0, G.fx.length - 400);
     const ent = id => G.ents.get(id);
     switch (f.t) {
       case 'hit': {
@@ -490,7 +493,6 @@
     const current = G.fx;
     G.fx = [];
     G.fx = current.filter(f => drawFx(f, now)).concat(G.fx);
-    if (G.fx.length > 400) G.fx.splice(0, G.fx.length - 400);
 
     requestAnimationFrame(frame);
   }

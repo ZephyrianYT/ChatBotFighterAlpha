@@ -61,14 +61,39 @@ async function serveStatic(req, res) {
         'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
         'Cache-Control': 'no-cache',
       });
-      if (req.method === 'HEAD') res.end();
-      else fs.createReadStream(file).pipe(res);
+      if (req.method === 'HEAD') {
+        res.end();
+      } else {
+        const stream = fs.createReadStream(file);
+        stream.on('error', () => res.destroy()); // e.g. file locked by antivirus
+        stream.pipe(res);
+      }
       return;
     } catch {
       // try the next candidate
     }
   }
   res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
+}
+
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+// Only pages served by this server (the overlay and console) may connect.
+// Without this, any website open in your browser could connect to
+// localhost and send fake chat.
+function allowConnection(req, host) {
+  const origin = req.headers.origin;
+  if (!origin) return true; // not a web page (OBS's own requests, tests, tools)
+  let url;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.host !== req.headers.host) return false;
+  // Same-origin but under a strange hostname = DNS rebinding trick, unless the
+  // streamer deliberately opened the server to the network.
+  return LOOPBACK.has(url.hostname) || !LOOPBACK.has(host === '::1' ? '[::1]' : host);
 }
 
 function start(overrides = {}) {
@@ -79,7 +104,9 @@ function start(overrides = {}) {
   const server = http.createServer((req, res) => {
     serveStatic(req, res).catch(() => res.writeHead(500).end());
   });
-  const io = new Server(server);
+  const io = new Server(server, {
+    allowRequest: (req, callback) => callback(null, allowConnection(req, settings.HOST)),
+  });
 
   const status = {
     twitch: settings.TWITCH_CHANNEL ? 'starting' : 'off',
@@ -123,10 +150,10 @@ function start(overrides = {}) {
     last = now;
     try {
       world.tick(dt);
+      io.emit('state', world.snapshot());
     } catch (err) {
       console.error('[world] tick failed:', err);
     }
-    io.emit('state', world.snapshot());
   }, 1000 / game.TICK_RATE);
   const hudTimer = setInterval(() => io.emit('hud', world.hud()), 2000);
   const save = () => {
@@ -191,6 +218,12 @@ if (require.main === module) {
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+      if (process.platform === 'win32') {
+        // Closing the console window (SIGHUP) or Ctrl+Break: save first.
+        // Not done elsewhere so `nohup npm start` keeps running after logout.
+        process.on('SIGHUP', shutdown);
+        process.on('SIGBREAK', shutdown);
+      }
     })
     .catch(err => {
       if (err.code === 'EADDRINUSE') {

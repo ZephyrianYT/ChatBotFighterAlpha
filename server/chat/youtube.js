@@ -14,8 +14,13 @@ async function getJson(url) {
   return body;
 }
 
-function startYouTube({ apiKey, videoId, pollMs, onChat, onStatus }) {
+function startYouTube({ apiKey, videoId, pollMs, onChat, onStatus, retryMs = 30000 }) {
   let stopped = false;
+  let lastStatus = null;
+  const status = s => {
+    if (s !== lastStatus) onStatus(s);
+    lastStatus = s;
+  };
   let timer = null;
   const key = encodeURIComponent(apiKey);
 
@@ -28,19 +33,19 @@ function startYouTube({ apiKey, videoId, pollMs, onChat, onStatus }) {
     while (!stopped) {
       try {
         if (!liveChatId) {
-          onStatus('finding live chat');
+          status('finding live chat');
           const video = await getJson(`${API}/videos?part=liveStreamingDetails&id=${encodeURIComponent(videoId)}&key=${key}`);
           liveChatId = video.items?.[0]?.liveStreamingDetails?.activeLiveChatId || null;
           if (!liveChatId) {
-            onStatus('no active live chat for that video; retrying in 30s');
-            await wait(30000);
+            status(`no active live chat for that video; retrying in ${retryMs / 1000}s`);
+            await wait(retryMs);
             continue;
           }
-          onStatus('connected');
         }
         const params = `liveChatId=${encodeURIComponent(liveChatId)}&part=snippet,authorDetails&key=${key}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
         const data = await getJson(`${API}/liveChat/messages?${params}`);
         pageToken = data.nextPageToken || pageToken;
+        status('connected'); // also clears an earlier error once polling works again
         // The first page is chat history from before we started; skip it so
         // old commands don't replay.
         if (!first) {
@@ -48,19 +53,19 @@ function startYouTube({ apiKey, videoId, pollMs, onChat, onStatus }) {
             if (item.snippet?.type !== 'textMessageEvent') continue;
             const user = (item.authorDetails?.displayName || '').replace(/^@/, '');
             const message = item.snippet.displayMessage || item.snippet.textMessageDetails?.messageText || '';
-            if (user) onChat({ user, message, platform: 'youtube' });
+            if (user) onChat({ user, message, platform: 'youtube', id: item.authorDetails?.channelId });
           }
         }
         first = false;
         await wait(Math.max(pollMs, data.pollingIntervalMillis || 0));
       } catch (err) {
-        onStatus(`error: ${err.message}; retrying in 30s`);
+        status(`error: ${err.message}; retrying in ${retryMs / 1000}s`);
         if (/liveChatEnded|liveChatNotFound|forbidden/i.test(err.message)) {
           liveChatId = null;
           pageToken = null;
           first = true;
         }
-        await wait(30000);
+        await wait(retryMs);
       }
     }
   }

@@ -300,7 +300,7 @@ test('loads hand-edited or older save data safely', () => {
 
   fs.writeFileSync(file, '{ not json');
   const w2 = makeWorld({}, file);
-  assert.deepEqual(w2.records, {});
+  assert.equal(Object.keys(w2.records).length, 0);
   assert.ok(fs.readdirSync(dir).some(f => f.includes('.corrupt-')), 'broken file is kept as a backup');
   fs.rmSync(dir, { recursive: true });
 });
@@ -339,4 +339,30 @@ test('an unbeaten boss leaves after a while', () => {
   w.spawnMob('dragon');
   run(w, 6);
   assert.equal(w.boss(), null);
+});
+
+test('chatters named like JavaScript built-ins are ordinary players', () => {
+  const w = makeWorld();
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    say(w, name, 'hi');
+    say(w, name, '--guild constructor');
+  }
+  run(w, 1);
+  assert.equal(({}).username, undefined, 'Object.prototype untouched');
+  assert.equal(w.records.constructor.username, 'constructor');
+  assert.equal(w.membersOf('constructor').size, 4);
+  w.snapshot();
+});
+
+test('same name from a different account gets its own character', () => {
+  const w = makeWorld();
+  w.handleChat({ user: 'Alex', message: '--guild Knights', platform: 'twitch', id: '111' });
+  w.records.alex.items.push('Dragon Slayer');
+  w.handleChat({ user: 'Alex', message: '--drop dragon', platform: 'youtube', id: 'UC999' });
+  assert.ok(w.records.alex.items.includes('Dragon Slayer'), 'impostor could not drop the item');
+  const other = Object.values(w.records).find(r => r.uid === 'youtube:UC999');
+  assert.match(other.username, /^Alex#/);
+  assert.notEqual(other, w.records.alex);
+  w.handleChat({ user: 'Alex', message: 'still me', platform: 'twitch', id: '111' });
+  assert.equal(w.records.alex.messages, 2);
 });

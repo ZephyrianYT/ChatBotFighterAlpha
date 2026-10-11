@@ -65,9 +65,14 @@ class World extends EventEmitter {
     this.bossTimer = config.BOSS_INTERVAL;
     this.quest = null;
     this.questTimer = config.QUEST_DELAY;
-    this.nez = config.NEZ_ENABLED
+    // The NEZ as configured (drawn by ?debug=1), and the slightly larger area
+    // characters keep out of so their name labels (drawn above them) and
+    // sides don't spill into it either.
+    this.nezArea = config.NEZ_ENABLED
       ? { x: config.NEZ_X, y: config.NEZ_Y, w: config.NEZ_W, h: config.NEZ_H }
       : null;
+    const a = this.nezArea;
+    this.nez = a ? { x: a.x - 45, y: a.y - 15, w: a.w + 90, h: a.h + 15 + 60 } : null;
     this.loadRecords();
   }
 
@@ -109,9 +114,11 @@ class World extends EventEmitter {
   // Fill in missing fields so hand-edited or older save files still load.
   normalizeRecord(key, raw) {
     const r = raw && typeof raw === 'object' ? raw : {};
-    r.username = typeof r.username === 'string' && r.username.trim() ? r.username.trim() : key;
+    const name = typeof r.username === 'string' ? r.username.trim() : '';
+    r.username = name && keyOf(name) === key ? name : key;
     r.platform = typeof r.platform === 'string' ? r.platform : 'chat';
-    if (!D.CLASSES[r.class]) r.class = D.classForUser(r.username);
+    r.uid = typeof r.uid === 'string' ? r.uid : null;
+    if (!Object.hasOwn(D.CLASSES, r.class)) r.class = D.classForUser(r.username);
     r.xp = Number.isFinite(r.xp) && r.xp > 0 ? Math.floor(r.xp) : 0;
     r.level = D.levelForXp(r.xp, this.cfg.MAX_LEVEL);
     r.guild = typeof r.guild === 'string' && r.guild.trim() ? r.guild.trim() : null;
@@ -132,10 +139,11 @@ class World extends EventEmitter {
     return r;
   }
 
-  newRecord(username, platform) {
+  newRecord(username, platform, uid) {
     return {
       username,
       platform,
+      uid,
       class: D.classForUser(username),
       xp: 0,
       level: 1,
@@ -746,13 +754,23 @@ class World extends EventEmitter {
 
   // ─── Chat & commands ──────────────────────────────────────────
 
-  handleChat({ user, message, platform = 'chat' }) {
-    const username = String(user || '').replace(/^@+/, '').trim().slice(0, 40);
+  // `id` is the chatter's account id on Twitch/YouTube (absent for the test console).
+  handleChat({ user, message, platform = 'chat', id = null }) {
+    let username = String(user || '').replace(/^@+/, '').trim().slice(0, 40);
     if (!username || typeof message !== 'string') return null;
-    const key = keyOf(username);
+    const uid = id ? `${platform}:${id}` : null;
+    let key = keyOf(username);
     let rec = this.records[key];
+    if (rec && uid && rec.uid && rec.uid !== uid) {
+      // Same name, different account (another platform, or a duplicate
+      // display name): they get their own character instead of taking over.
+      username = `${username}#${D.hashString(uid).toString(36).slice(0, 4)}`;
+      key = keyOf(username);
+      rec = this.records[key];
+    }
+    if (rec && uid && !rec.uid) rec.uid = uid;
     if (!rec) {
-      rec = this.newRecord(username, platform);
+      rec = this.newRecord(username, platform, uid);
       this.records[key] = rec;
       this.feed(`✨ ${username} joined the game as a ${D.CLASSES[rec.class].name}`, 'join');
     }
@@ -1243,8 +1261,9 @@ class World extends EventEmitter {
       const max = Math.min(cfg.MAX_MOBS, cfg.MOBS_BASE + this.players.size * cfg.MOBS_PER_PLAYER);
       let mobs = 0;
       for (const e of this.entities.values()) if (e.kind === 'mob' && !e.boss) mobs++;
-      // Up to 3 at a time so a busy arena fills up quickly.
-      for (let i = 0; i < Math.min(3, max - mobs); i++) this.spawnMob(this.pickMobType());
+      // Spawn more at once in a busy arena so monsters keep up with the crowd.
+      const batch = Math.min(max - mobs, 2 + Math.ceil(this.players.size / 5));
+      for (let i = 0; i < batch; i++) this.spawnMob(this.pickMobType());
     }
     this.bossTimer -= dt;
     if (this.bossTimer <= 0) {
@@ -1300,7 +1319,7 @@ class World extends EventEmitter {
   }
 
   hello() {
-    return { w: this.cfg.WORLD_W, h: this.cfg.WORLD_H, nez: this.nez, tickRate: this.cfg.TICK_RATE, feed: this.feedLog };
+    return { w: this.cfg.WORLD_W, h: this.cfg.WORLD_H, nez: this.nezArea, tickRate: this.cfg.TICK_RATE, feed: this.feedLog };
   }
 
   snapshot() {
