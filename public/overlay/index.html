@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Chat Fighter Overlay</title>
+  <!--
+    OBS Browser Source: http://localhost:3000/overlay  (1920x1080)
+    URL options: ?hud=0 hides panels, ?help=0 hides the command ticker,
+                 ?status=0 hides connection status, ?debug=1 outlines the NEZ.
+  -->
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    body {
+      color: #00ff66;
+      font-family: 'Courier New', monospace;
+      user-select: none;
+    }
+    #world { position: fixed; inset: 0; }
+
+    .panel {
+      position: fixed;
+      background: rgba(0, 0, 0, 0.82);
+      border: 2px solid var(--accent);
+      border-radius: 0.4rem;
+      box-shadow: 0 0 0.9rem var(--glow);
+      padding: 0.6rem 0.8rem;
+      font-size: 0.8rem;
+      color: #aaa;
+      z-index: 10;
+    }
+    .panel h3 {
+      color: var(--accent);
+      font-size: 0.9rem;
+      letter-spacing: 0.15em;
+      text-shadow: 0 0 0.5rem var(--accent);
+      margin-bottom: 0.4rem;
+    }
+    .row { display: flex; justify-content: space-between; gap: 0.8rem; margin: 0.15rem 0; white-space: nowrap; }
+    .row .name { color: #0ff; overflow: hidden; text-overflow: ellipsis; max-width: 11rem; }
+    .row .val { color: #ff9a2a; font-weight: bold; }
+    .off { opacity: 0.45; }
+    .war { color: #ff4a4a; font-size: 0.7rem; }
+
+    #leaderboard { --accent: #ffee00; --glow: rgba(255,238,0,0.3); top: 1.2rem; right: 1.2rem; min-width: 15rem; }
+    #guilds { --accent: #b98cff; --glow: rgba(185,140,255,0.3); top: 17rem; right: 1.2rem; min-width: 15rem; }
+    #feed { --accent: #00ff66; --glow: rgba(0,255,102,0.3); left: 1.2rem; bottom: 1.2rem; width: 26rem; }
+    #feed .line { margin: 0.2rem 0; padding-left: 0.5rem; border-left: 2px solid #00ff66; color: #ddd; transition: opacity 1s; }
+    #feed .line.pvp, #feed .line.war, #feed .line.death { border-color: #ff4a4a; }
+    #feed .line.guild, #feed .line.ally, #feed .line.summon { border-color: #b98cff; }
+    #feed .line.loot, #feed .line.level { border-color: #ffd84a; }
+    #feed .line.boss { border-color: #ff3a3a; color: #ff8080; font-weight: bold; }
+    #feed .line.quest { border-color: #4aa8ff; }
+    #feed .line.fade { opacity: 0; }
+
+    #info { --accent: #00e5ff; --glow: rgba(0,229,255,0.3); top: 1.2rem; left: 1.2rem; min-width: 13rem; }
+    #quest { color: #8fd0ff; margin-top: 0.4rem; white-space: normal; max-width: 16rem; }
+    #quest .bar, #boss .bar { height: 0.35rem; background: #222; margin-top: 0.25rem; border-radius: 0.2rem; overflow: hidden; }
+    #quest .fill { height: 100%; background: #4aa8ff; }
+
+    #boss {
+      --accent: #ff3a3a; top: 1.2rem; --glow: rgba(255,58,58,0.4); left: 50%; transform: translateX(-50%);
+      min-width: 26rem; text-align: center; display: none;
+    }
+    #boss .fill { height: 100%; background: #ff3a3a; }
+    #boss .bar { height: 0.6rem; }
+
+    #alert {
+      position: fixed; top: 22%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 2.6rem; font-weight: bold; color: #ff3a3a; letter-spacing: 0.1em;
+      text-shadow: 0 0 1.2rem #ff0000, 0 0 0.2rem #000; display: none; z-index: 20; white-space: nowrap;
+      animation: pulse 0.5s ease-in-out infinite alternate;
+    }
+    @keyframes pulse { from { opacity: 1; } to { opacity: 0.55; } }
+
+    #help {
+      position: fixed; bottom: 1.2rem; left: 50%; transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.75); border: 1px solid #00ff66; border-radius: 0.4rem;
+      padding: 0.35rem 0.9rem; color: #c8ffd8; font-size: 0.85rem; z-index: 10; white-space: nowrap;
+      transition: opacity 0.4s;
+    }
+    #help b { color: #00ff66; }
+
+    #status {
+      position: fixed; bottom: 0.3rem; right: 1.2rem; font-size: 0.65rem; color: #888; z-index: 10;
+      background: rgba(0, 0, 0, 0.6); padding: 0.15rem 0.4rem; border-radius: 0.2rem;
+    }
+    #status .ok { color: #00ff66; }
+    #status .bad { color: #ff5a5a; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <canvas id="world"></canvas>
+
+  <div id="info" class="panel hud">
+    <h3>⚔ CHAT FIGHTER</h3>
+    <div class="row"><span>In arena</span><span class="val" id="online">0</span></div>
+    <div class="row"><span>Monsters</span><span class="val" id="mobs">0</span></div>
+    <div class="row"><span>Heroes</span><span class="val" id="total">0</span></div>
+    <div id="quest"></div>
+  </div>
+  <div id="leaderboard" class="panel hud"><h3>★ TOP FIGHTERS</h3><div id="top"></div></div>
+  <div id="guilds" class="panel hud"><h3>🏰 GUILDS</h3><div id="guild-list"></div></div>
+  <div id="feed" class="panel hud"><h3>📢 EVENTS</h3><div id="feed-lines"></div></div>
+  <div id="boss" class="panel"><div id="boss-name"></div><div class="bar"><div class="fill" id="boss-fill"></div></div></div>
+  <div id="alert"></div>
+  <div id="help"></div>
+  <div id="status">connecting…</div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/overlay/game.js"></script>
+  <script src="/overlay/socket.js"></script>
+</body>
+</html>
